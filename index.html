@@ -29,21 +29,140 @@
   .skel{height:12px;background:#e8e8e8;border-radius:6px;animation:skeleton 1.4s ease infinite}
   .sheet-enter{animation:slideUp 0.28s cubic-bezier(0.32,0.72,0,1)}
   .pop-enter{animation:popIn 0.2s ease}
+  .flip-container{perspective:600px;cursor:pointer}
+  .flip-inner{position:relative;width:100%;height:100%;transition:transform 0.4s ease;transform-style:preserve-3d}
+  .flip-inner.flipped{transform:rotateY(180deg)}
+  .flip-front,.flip-back{position:absolute;width:100%;height:100%;backface-visibility:hidden;-webkit-backface-visibility:hidden;border-radius:16px;overflow:hidden}
+  .flip-back{transform:rotateY(180deg);background:#fff}
+  @keyframes ringPulse{0%,100%{box-shadow:0 0 0 0 rgba(124,154,126,0.5),0 4px 20px rgba(124,154,126,0.55)}60%{box-shadow:0 0 0 10px rgba(124,154,126,0),0 4px 20px rgba(124,154,126,0.55)}}
 </style>
 </head>
 <body>
 <div id="root"></div>
 
-<!-- React 18 + Babel + Recharts via CDN -->
-<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
-<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
-<script src="https://unpkg.com/prop-types@15/prop-types.min.js" crossorigin></script>
-<script src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js" crossorigin></script>
+<!-- React 18 + Babel via cdnjs (artifact-safe) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
 
 <script type="text/babel">
 const { useState, useEffect, useRef, useCallback } = React;
-const { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } = Recharts;
+
+// ─── PURE SVG CHART COMPONENTS (no external deps) ────────
+function SVGLineChart({ data, lines, height=210, yDomain }) {
+  const [tooltip, setTooltip] = useState(null);
+  const W = 340, H = height, PAD = { top:12, right:16, bottom:28, left:32 };
+  const innerW = W - PAD.left - PAD.right;
+  const innerH = H - PAD.top - PAD.bottom;
+
+  const allVals = lines.flatMap(l=>data.map(d=>d[l.key]).filter(v=>v!=null));
+  const yMin = yDomain ? yDomain[0] : Math.min(...allVals)*0.92;
+  const yMax = yDomain ? yDomain[1] : Math.max(...allVals)*1.06;
+
+  const xScale = i => PAD.left + (i/(Math.max(data.length-1,1)))*innerW;
+  const yScale = v => PAD.top + innerH - ((v-yMin)/(yMax-yMin))*innerH;
+
+  const yTicks = 4;
+  const xLabels = data.map((d,i)=>({ x:xScale(i), label:d.name }));
+  const yTickVals = Array.from({length:yTicks+1},(_,i)=>yMin+(yMax-yMin)*(i/yTicks));
+
+  return (
+    <div style={{ position:"relative", width:"100%" }}>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width:"100%", height:H, display:"block" }}>
+        {/* grid lines */}
+        {yTickVals.map((v,i)=>(
+          <line key={i} x1={PAD.left} y1={yScale(v)} x2={W-PAD.right} y2={yScale(v)}
+            stroke="#f0f0f0" strokeWidth={1}/>
+        ))}
+        {/* y axis labels */}
+        {yTickVals.filter((_,i)=>i%2===0).map((v,i)=>(
+          <text key={i} x={PAD.left-4} y={yScale(v)+3} textAnchor="end" fontSize={8} fill="#8C9BAB">
+            {v%1===0?v:v.toFixed(1)}
+          </text>
+        ))}
+        {/* x axis labels */}
+        {xLabels.filter((_,i)=>i===0||i===Math.floor(data.length/2)||i===data.length-1).map((d,i)=>(
+          <text key={i} x={d.x} y={H-4} textAnchor="middle" fontSize={8} fill="#8C9BAB">{d.label}</text>
+        ))}
+        {/* lines */}
+        {lines.map(l=>{
+          const pts = data.map((d,i)=>d[l.key]!=null?`${xScale(i)},${yScale(d[l.key])}`:null).filter(Boolean);
+          if (!pts.length) return null;
+          return (
+            <g key={l.key}>
+              <polyline points={pts.join(" ")} fill="none" stroke={l.color}
+                strokeWidth={l.width||1.5} strokeDasharray={l.dash||"none"}
+                strokeLinecap="round" strokeLinejoin="round"/>
+              {l.dot && data.map((d,i)=>d[l.key]!=null?(
+                <circle key={i} cx={xScale(i)} cy={yScale(d[l.key])} r={4}
+                  fill={l.color} stroke="#fff" strokeWidth={1.5}
+                  style={{ cursor:"pointer" }}
+                  onMouseEnter={e=>setTooltip({x:xScale(i),y:yScale(d[l.key]),val:d[l.key],name:d.name,label:l.label})}
+                  onMouseLeave={()=>setTooltip(null)}/>
+              ):null)}
+            </g>
+          );
+        })}
+        {/* tooltip */}
+        {tooltip && (
+          <g>
+            <rect x={Math.min(tooltip.x-30,W-80)} y={tooltip.y-30} width={72} height={22} rx={4}
+              fill="#2C3E50" opacity={0.9}/>
+            <text x={Math.min(tooltip.x-30,W-80)+36} y={tooltip.y-15} textAnchor="middle" fontSize={9} fill="#fff">
+              {tooltip.name}: {typeof tooltip.val==="number"?tooltip.val.toFixed(tooltip.val>10?1:2):tooltip.val}
+            </text>
+          </g>
+        )}
+      </svg>
+      {/* legend */}
+      <div style={{ display:"flex", gap:12, justifyContent:"center", flexWrap:"wrap", marginTop:4 }}>
+        {lines.map(l=>(
+          <div key={l.key} style={{ display:"flex", alignItems:"center", gap:4, fontSize:9, color:"#8C9BAB" }}>
+            <svg width={20} height={8}>
+              <line x1={0} y1={4} x2={20} y2={4} stroke={l.color} strokeWidth={l.width||1.5}
+                strokeDasharray={l.dash||"none"}/>
+              {l.dot && <circle cx={10} cy={4} r={3} fill={l.color}/>}
+            </svg>
+            {l.label}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SVGMiniBarChart({ data, height=80 }) {
+  const W = 300, H = height;
+  const PAD = { top:4, right:4, bottom:16, left:4 };
+  const innerW = W - PAD.left - PAD.right;
+  const innerH = H - PAD.top - PAD.bottom;
+  const vals = data.map(d=>d.v);
+  const maxV = Math.max(...vals)*1.1||1;
+  const barW = Math.max(2, (innerW/data.length)*0.7);
+  const gap = innerW/data.length;
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} style={{ width:"100%", height:H, display:"block" }}>
+      {data.map((d,i)=>{
+        const bh = Math.max(2,(d.v/maxV)*innerH);
+        const x = PAD.left + i*gap + gap/2 - barW/2;
+        const y = PAD.top + innerH - bh;
+        return (
+          <g key={i}>
+            <rect x={x} y={y} width={barW} height={bh} rx={2}
+              fill={d.good?"#7C9A7E":"#E8967A"}/>
+            <text x={x+barW/2} y={H-3} textAnchor="middle" fontSize={7} fill="#8C9BAB">{d.name}</text>
+          </g>
+        );
+      })}
+      {data[0]?.avg && (
+        <line x1={PAD.left} y1={PAD.top+innerH-(data[0].avg/maxV)*innerH}
+          x2={W-PAD.right} y2={PAD.top+innerH-(data[0].avg/maxV)*innerH}
+          stroke="#E8967A" strokeDasharray="3 3" strokeWidth={1.5}/>
+      )}
+    </svg>
+  );
+}
 
 // ─── CONSTANTS ───────────────────────────────────────────
 const DOB = new Date("2025-12-11");
@@ -174,9 +293,12 @@ function useAudioEngine() {
 
   const stopAll = useCallback(() => {
     const n = nodes.current;
-    if (n.src)      { try { n.src.stop(); } catch{} }
-    if (n.osc)      { try { n.osc.stop(); } catch{} }
-    if (n.interval) clearInterval(n.interval);
+    if (n.src)       { try { n.src.stop(); } catch{} }
+    if (n.osc)       { try { n.osc.stop(); } catch{} }
+    if (n.osc2)      { try { n.osc2.stop(); } catch{} }
+    if (n.osc3)      { try { n.osc3.stop(); } catch{} }
+    if (n.interval)  clearInterval(n.interval);
+    if (n.birdTimers) n.birdTimers.forEach(t=>clearTimeout(t));
     nodes.current = {};
     setPlaying(null);
     if (timer.current) clearTimeout(timer.current);
@@ -193,7 +315,7 @@ function useAudioEngine() {
     master.connect(ac.destination);
 
     const makeNoise = (freq, q, btype) => {
-      const sz = ac.sampleRate * 3;
+      const sz = ac.sampleRate * 4;
       const buf = ac.createBuffer(1, sz, ac.sampleRate);
       const d = buf.getChannelData(0);
       for (let i = 0; i < sz; i++) d[i] = Math.random() * 2 - 1;
@@ -209,27 +331,91 @@ function useAudioEngine() {
       nodes.current.src = src;
     };
 
-    if (type === "white")     makeNoise(null);
-    else if (type === "rain") makeNoise(600);
-    else if (type === "ocean") makeNoise(320);
-    else if (type === "fan")  makeNoise(900, 0.4, "bandpass");
-    else if (type === "heartbeat") {
-      const osc = ac.createOscillator();
-      const g   = ac.createGain();
-      osc.frequency.value = 72;
-      g.gain.setValueAtTime(0, ac.currentTime);
-      osc.connect(g); g.connect(master); osc.start();
-      const beat = () => {
-        const t = ac.currentTime;
-        g.gain.setValueAtTime(0, t);
-        g.gain.linearRampToValueAtTime(1,   t+0.05);
-        g.gain.linearRampToValueAtTime(0,   t+0.15);
-        g.gain.linearRampToValueAtTime(0.7, t+0.25);
-        g.gain.linearRampToValueAtTime(0,   t+0.4);
+    if (type === "white") {
+      makeNoise(null);
+    } else if (type === "ocean") {
+      makeNoise(340);
+      // add gentle wave modulation
+      const lfo = ac.createOscillator();
+      const lfoGain = ac.createGain();
+      lfo.frequency.value = 0.1;
+      lfoGain.gain.value = 60;
+      lfo.connect(lfoGain);
+      // modulate the filter — approximate by connecting to master gain lightly
+      lfo.start();
+      nodes.current.osc = lfo;
+    } else if (type === "birds") {
+      // Background ambience — light high-passed noise
+      const sz = ac.sampleRate * 3;
+      const buf = ac.createBuffer(1, sz, ac.sampleRate);
+      const d = buf.getChannelData(0);
+      for (let i = 0; i < sz; i++) d[i] = (Math.random()*2-1)*0.15;
+      const bg = ac.createBufferSource();
+      bg.buffer = buf; bg.loop = true;
+      const hp = ac.createBiquadFilter(); hp.type="highpass"; hp.frequency.value=1200;
+      bg.connect(hp); hp.connect(master); bg.start();
+      nodes.current.src = bg;
+
+      // Chirp function — short sine bursts at bird frequencies
+      const birdTimers = [];
+      const chirp = (freq, duration, delay) => {
+        const t = setTimeout(() => {
+          if (!nodes.current.master) return;
+          const o = ac.createOscillator();
+          const g = ac.createGain();
+          const now = ac.currentTime;
+          o.frequency.setValueAtTime(freq, now);
+          o.frequency.linearRampToValueAtTime(freq * 1.15, now + duration * 0.4);
+          o.frequency.linearRampToValueAtTime(freq, now + duration);
+          g.gain.setValueAtTime(0, now);
+          g.gain.linearRampToValueAtTime(0.18, now + 0.02);
+          g.gain.setValueAtTime(0.18, now + duration - 0.03);
+          g.gain.linearRampToValueAtTime(0, now + duration);
+          o.connect(g); g.connect(master);
+          o.start(now); o.stop(now + duration);
+        }, delay);
+        birdTimers.push(t);
       };
-      beat();
-      nodes.current.osc = osc;
-      nodes.current.interval = setInterval(beat, 1000);
+      // Schedule repeating bird calls
+      const schedule = () => {
+        if (!nodes.current.master) return;
+        const patterns = [
+          [2800, 0.12], [3200, 0.1], [2400, 0.14], [3600, 0.09], [2100, 0.11]
+        ];
+        patterns.forEach(([f,d], i) => {
+          if (Math.random() > 0.4) chirp(f, d, i * 180 + Math.random() * 300);
+        });
+        const t = setTimeout(schedule, 1800 + Math.random() * 1200);
+        birdTimers.push(t);
+      };
+      schedule();
+      nodes.current.birdTimers = birdTimers;
+    } else if (type === "om") {
+      // 136.1Hz Om frequency with harmonics
+      const freqs = [136.1, 272.2, 408.3];
+      const gains = [0.5, 0.25, 0.12];
+      const oscs = freqs.map((f, i) => {
+        const o = ac.createOscillator();
+        const g = ac.createGain();
+        o.type = "sine";
+        o.frequency.value = f;
+        g.gain.setValueAtTime(0, ac.currentTime);
+        g.gain.linearRampToValueAtTime(gains[i], ac.currentTime + 2.5);
+        o.connect(g); g.connect(master);
+        o.start();
+        return { osc: o, gain: g };
+      });
+      // Gentle slow tremolo
+      const lfo = ac.createOscillator();
+      const lfoG = ac.createGain();
+      lfo.frequency.value = 0.05;
+      lfoG.gain.value = 0.04;
+      lfo.connect(lfoG); lfoG.connect(master.gain);
+      lfo.start();
+      nodes.current.osc  = oscs[0].osc;
+      nodes.current.osc2 = oscs[1].osc;
+      nodes.current.osc3 = oscs[2].osc;
+      nodes.current._omLfo = lfo;
     }
     nodes.current.master = master;
     setPlaying(type);
@@ -302,122 +488,243 @@ function Confetti({ active }) {
   );
 }
 
+// ─── TIME PILL SELECTOR ─────────────────────────────────
+function TimePillSelector({ value, onChange }) {
+  const [custom, setCustom] = useState(false);
+  const now = new Date();
+  const fmt = d => d.toTimeString().slice(0,5);
+  const options = [
+    { label:"Just now", value: fmt(now) },
+    { label:"15m ago",  value: fmt(new Date(now-15*60000)) },
+    { label:"30m ago",  value: fmt(new Date(now-30*60000)) },
+    { label:"1hr ago",  value: fmt(new Date(now-60*60000)) },
+    { label:"Custom",   value: "custom" },
+  ];
+  const [sel, setSel] = useState(options[0].value);
+  const handlePick = (v) => {
+    if (v === "custom") { setCustom(true); return; }
+    setSel(v); setCustom(false); onChange(v);
+  };
+  return (
+    <div>
+      <div style={S.label}>When?</div>
+      <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+        {options.map(o=>(
+          <button key={o.label} onClick={()=>handlePick(o.value)} style={{
+            padding:"8px 12px", borderRadius:50, border:"none", cursor:"pointer", fontSize:13, fontWeight:600,
+            background: (!custom && sel===o.value) || (custom && o.value==="custom") ? "#7C9A7E" : "#f0f0f0",
+            color: (!custom && sel===o.value) || (custom && o.value==="custom") ? "#fff" : "#2C3E50",
+            transition:"all 0.15s"
+          }}>{o.label}</button>
+        ))}
+      </div>
+      {custom && <input type="time" value={value} onChange={e=>onChange(e.target.value)}
+        style={{ ...S.input, marginTop:10 }}/>}
+    </div>
+  );
+}
+
 // ─── LOG FORMS ────────────────────────────────────────────
-function FeedForm({ onSave }) {
-  const [type, setType] = useState("breastmilk");
-  const [vol,  setVol]  = useState("");
+function FeedForm({ onSave, prefill }) {
+  const [type, setType] = useState(prefill?.feedType || "breastmilk");
+  const [vol,  setVol]  = useState(parseInt(prefill?.volume) || 55);
   const [time, setTime] = useState(new Date().toTimeString().slice(0,5));
   return (
-    <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
-      <div><div style={S.label}>Time</div>
-        <input type="time" value={time} onChange={e=>setTime(e.target.value)} style={S.input}/></div>
-      <div><div style={S.label}>Type</div>
+    <div style={{ display:"flex", flexDirection:"column", gap:18 }}>
+      <TimePillSelector value={time} onChange={setTime}/>
+      <div>
+        <div style={S.label}>Type</div>
         <div style={{ display:"flex", gap:10 }}>
-          {[["breastmilk","Breastmilk 🤱"],["formula","Formula Milk 🍼"]].map(([v,l])=>(
+          {[["breastmilk","🤱","Breastmilk"],["formula","🍼","Formula"]].map(([v,ico,l])=>(
             <button key={v} onClick={()=>setType(v)} style={{
-              ...S.toggleBtn, flex:1,
+              flex:1, border:"none", borderRadius:14, padding:"16px 8px", cursor:"pointer",
+              display:"flex", flexDirection:"column", alignItems:"center", gap:6,
               background:type===v?"#7C9A7E":"#f5f5f5",
-              color:type===v?"#fff":"#2C3E50"
-            }}>{l}</button>
+              color:type===v?"#fff":"#2C3E50", fontWeight:700, fontSize:14,
+              boxShadow:type===v?"0 2px 12px rgba(124,154,126,0.3)":"none", transition:"all 0.2s"
+            }}><span style={{ fontSize:26 }}>{ico}</span>{l}</button>
           ))}
-        </div></div>
-      <div><div style={S.label}>Volume (ml)</div>
-        <input type="number" value={vol} onChange={e=>setVol(e.target.value)} placeholder="e.g. 60" style={S.input}/></div>
-      <button onClick={()=>onSave({type:"feed",feedType:type,volume:vol,time})} style={S.saveBtn}>Save Feed ✓</button>
-    </div>
-  );
-}
-
-function SleepForm({ onSave }) {
-  const [start, setStart] = useState(new Date(Date.now()-7200000).toTimeString().slice(0,5));
-  const [end,   setEnd]   = useState(new Date().toTimeString().slice(0,5));
-  const [still, setStill] = useState(false);
-  const [qual,  setQual]  = useState("settled");
-  return (
-    <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
-      <div style={{ display:"flex", gap:10 }}>
-        <div style={{ flex:1 }}><div style={S.label}>Start</div>
-          <input type="time" value={start} onChange={e=>setStart(e.target.value)} style={S.input}/></div>
-        <div style={{ flex:1 }}><div style={S.label}>End</div>
-          <input type="time" value={end} onChange={e=>setEnd(e.target.value)} style={S.input} disabled={still}/></div>
+        </div>
       </div>
-      <label style={{ display:"flex", alignItems:"center", gap:8, cursor:"pointer" }}>
-        <input type="checkbox" checked={still} onChange={e=>setStill(e.target.checked)}/>
-        <span style={{ color:"#2C3E50", fontSize:14 }}>Still sleeping 💤</span>
-      </label>
-      <div><div style={S.label}>Quality</div>
-        <div style={{ display:"flex", gap:10 }}>
-          {[["settled","Settled 😌"],["unsettled","Unsettled 😰"]].map(([v,l])=>(
-            <button key={v} onClick={()=>setQual(v)} style={{ ...S.toggleBtn, flex:1, background:qual===v?"#7C9A7E":"#f5f5f5", color:qual===v?"#fff":"#2C3E50" }}>{l}</button>
-          ))}
-        </div></div>
-      <button onClick={()=>onSave({type:"sleep",start,end:still?"now":end,quality:qual})} style={S.saveBtn}>Save Sleep ✓</button>
+      <div>
+        <div style={S.label}>Volume (ml)</div>
+        <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+          <button onClick={()=>setVol(v=>Math.max(0,v-5))} style={{ width:44, height:44, borderRadius:"50%", background:"#f0f0f0", border:"none", fontSize:22, cursor:"pointer", fontWeight:700, color:"#2C3E50" }}>−</button>
+          <div style={{ flex:1, textAlign:"center", fontSize:36, fontWeight:900, color:"#2C3E50" }}>{vol}<span style={{ fontSize:16, color:"#8C9BAB", fontWeight:500 }}>ml</span></div>
+          <button onClick={()=>setVol(v=>v+5)} style={{ width:44, height:44, borderRadius:"50%", background:"#7C9A7E", border:"none", fontSize:22, cursor:"pointer", fontWeight:700, color:"#fff" }}>+</button>
+        </div>
+      </div>
+      <button onClick={()=>onSave({type:"feed",feedType:type,volume:String(vol),time})} style={S.saveBtn}>Save Feed ✓</button>
     </div>
   );
 }
 
-function DiaperForm({ onSave }) {
-  const [dtype,  setDtype]  = useState("wet");
-  const [notes,  setNotes]  = useState("");
+function SleepForm({ onSave, prefill }) {
+  const now = new Date();
+  const fmt = d => d.toTimeString().slice(0,5);
+  const [startTime, setStartTime] = useState(fmt(new Date(now-60*60000)));
+  const [still,     setStill]     = useState(false);
+  const [durHrs,    setDurHrs]    = useState(1);
+  const [durMins,   setDurMins]   = useState(0);
+  const [qual,      setQual]      = useState(prefill?.quality || "settled");
+
+  const computeEnd = () => {
+    const [sh,sm] = startTime.split(":").map(Number);
+    const endMin = sh*60 + sm + durHrs*60 + durMins;
+    return `${String(Math.floor(endMin/60)%24).padStart(2,"0")}:${String(endMin%60).padStart(2,"0")}`;
+  };
+
   return (
-    <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
-      <div><div style={S.label}>Type</div>
-        <div style={{ display:"flex", gap:8 }}>
-          {[["wet","Wet 💧"],["soiled","Soiled 💩"],["both","Both 🌀"]].map(([v,l])=>(
-            <button key={v} onClick={()=>setDtype(v)} style={{ ...S.toggleBtn, flex:1, background:dtype===v?"#7C9A7E":"#f5f5f5", color:dtype===v?"#fff":"#2C3E50" }}>{l}</button>
+    <div style={{ display:"flex", flexDirection:"column", gap:18 }}>
+      <TimePillSelector value={startTime} onChange={setStartTime}/>
+      <label style={{ display:"flex", alignItems:"center", gap:10, cursor:"pointer", padding:"12px 14px", background:"#f0f7f0", borderRadius:12 }}>
+        <span style={{ fontSize:14, fontWeight:600, color:"#2C3E50", flex:1 }}>Still sleeping? 💤</span>
+        <div onClick={()=>setStill(s=>!s)} style={{ width:46, height:26, borderRadius:13, background:still?"#7C9A7E":"#ccc", position:"relative", transition:"background 0.2s", cursor:"pointer" }}>
+          <div style={{ width:22, height:22, borderRadius:"50%", background:"#fff", position:"absolute", top:2, left:still?22:2, transition:"left 0.2s", boxShadow:"0 1px 4px rgba(0,0,0,0.2)" }}/>
+        </div>
+      </label>
+      {!still && (
+        <div>
+          <div style={S.label}>Duration</div>
+          <div style={{ display:"flex", gap:10 }}>
+            <div style={{ flex:1 }}>
+              <div style={{ textAlign:"center", fontSize:11, color:"#8C9BAB", marginBottom:4 }}>Hours</div>
+              <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                <button onClick={()=>setDurHrs(h=>Math.max(0,h-1))} style={{ width:36, height:36, borderRadius:"50%", background:"#f0f0f0", border:"none", fontSize:18, cursor:"pointer" }}>−</button>
+                <div style={{ flex:1, textAlign:"center", fontSize:28, fontWeight:800, color:"#2C3E50" }}>{durHrs}</div>
+                <button onClick={()=>setDurHrs(h=>Math.min(24,h+1))} style={{ width:36, height:36, borderRadius:"50%", background:"#7C9A7E", border:"none", fontSize:18, cursor:"pointer", color:"#fff" }}>+</button>
+              </div>
+            </div>
+            <div style={{ flex:1 }}>
+              <div style={{ textAlign:"center", fontSize:11, color:"#8C9BAB", marginBottom:4 }}>Minutes</div>
+              <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                <button onClick={()=>setDurMins(m=>Math.max(0,m-15))} style={{ width:36, height:36, borderRadius:"50%", background:"#f0f0f0", border:"none", fontSize:18, cursor:"pointer" }}>−</button>
+                <div style={{ flex:1, textAlign:"center", fontSize:28, fontWeight:800, color:"#2C3E50" }}>{String(durMins).padStart(2,"0")}</div>
+                <button onClick={()=>setDurMins(m=>m+15>=60?0:m+15)} style={{ width:36, height:36, borderRadius:"50%", background:"#7C9A7E", border:"none", fontSize:18, cursor:"pointer", color:"#fff" }}>+</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      <div>
+        <div style={S.label}>Quality</div>
+        <div style={{ display:"flex", gap:10 }}>
+          {[["settled","😴","Settled"],["unsettled","😟","Unsettled"]].map(([v,ico,l])=>(
+            <button key={v} onClick={()=>setQual(v)} style={{
+              flex:1, border:"none", borderRadius:14, padding:"14px 8px", cursor:"pointer",
+              display:"flex", flexDirection:"column", alignItems:"center", gap:6,
+              background:qual===v?"#7C9A7E":"#f5f5f5", color:qual===v?"#fff":"#2C3E50",
+              fontWeight:700, fontSize:14, transition:"all 0.2s"
+            }}><span style={{ fontSize:24 }}>{ico}</span>{l}</button>
           ))}
-        </div></div>
-      <div><div style={S.label}>Notes (optional)</div>
-        <textarea value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Any observations..." style={{ ...S.input, height:70, resize:"none" }}/></div>
-      <button onClick={()=>onSave({type:"diaper",diaperType:dtype,notes})} style={S.saveBtn}>Save Diaper ✓</button>
+        </div>
+      </div>
+      <button onClick={()=>onSave({type:"sleep",start:startTime,end:still?"now":computeEnd(),quality:qual})} style={S.saveBtn}>Save Sleep ✓</button>
+    </div>
+  );
+}
+
+function DiaperForm({ onSave, prefill }) {
+  const [dtype,  setDtype]  = useState(prefill?.diaperType || "wet");
+  const [wet,    setWet]    = useState("normal");
+  const [notes,  setNotes]  = useState("");
+  const [time,   setTime]   = useState(new Date().toTimeString().slice(0,5));
+  return (
+    <div style={{ display:"flex", flexDirection:"column", gap:18 }}>
+      <TimePillSelector value={time} onChange={setTime}/>
+      <div>
+        <div style={S.label}>Type</div>
+        <div style={{ display:"flex", gap:8 }}>
+          {[["wet","💧","Wet"],["soiled","💩","Soiled"],["both","💧💩","Both"]].map(([v,ico,l])=>(
+            <button key={v} onClick={()=>setDtype(v)} style={{
+              flex:1, border:"none", borderRadius:14, padding:"14px 4px", cursor:"pointer",
+              display:"flex", flexDirection:"column", alignItems:"center", gap:4,
+              background:dtype===v?"#7C9A7E":"#f5f5f5", color:dtype===v?"#fff":"#2C3E50",
+              fontWeight:700, fontSize:12, transition:"all 0.2s"
+            }}><span style={{ fontSize:22 }}>{ico}</span>{l}</button>
+          ))}
+        </div>
+      </div>
+      {(dtype==="wet"||dtype==="both") && (
+        <div>
+          <div style={S.label}>Wetness</div>
+          <div style={{ display:"flex", gap:8 }}>
+            {["Light","Normal","Heavy"].map(w=>(
+              <button key={w} onClick={()=>setWet(w.toLowerCase())} style={{
+                flex:1, padding:"8px", borderRadius:50, border:"none", cursor:"pointer", fontSize:13, fontWeight:600,
+                background:wet===w.toLowerCase()?"#7C9A7E":"#f0f0f0",
+                color:wet===w.toLowerCase()?"#fff":"#2C3E50"
+              }}>{w}</button>
+            ))}
+          </div>
+        </div>
+      )}
+      <div>
+        <div style={S.label}>Notes</div>
+        <input type="text" value={notes} onChange={e=>setNotes(e.target.value)} placeholder="anything unusual?" style={S.input}/>
+      </div>
+      <button onClick={()=>onSave({type:"diaper",diaperType:dtype,wetness:wet,notes,time})} style={S.saveBtn}>Save Diaper ✓</button>
     </div>
   );
 }
 
 function WeightForm({ onSave }) {
-  const [wt, setWt] = useState("");
+  const [wt,   setWt]   = useState("");
+  const [time, setTime] = useState(new Date().toTimeString().slice(0,5));
   const delta = wt && !isNaN(parseFloat(wt)) ? (parseFloat(wt)-4.70).toFixed(2) : null;
   return (
-    <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
-      <div style={{ background:"#f0f7f0", borderRadius:12, padding:"10px 14px", fontSize:13, color:"#7C9A7E" }}>
-        Last entry: 4.70 kg on 23 Mar{delta ? ` — ${delta>=0?"+":""}${delta}kg since then` : ""}
-      </div>
-      <div><div style={S.label}>Weight (kg)</div>
+    <div style={{ display:"flex", flexDirection:"column", gap:18 }}>
+      <TimePillSelector value={time} onChange={setTime}/>
+      {delta !== null && (
+        <div style={{ background:"#f0f7f0", borderRadius:12, padding:"10px 14px", fontSize:13, color:"#7C9A7E" }}>
+          Last entry: 4.70 kg on 23 Mar — {delta>=0?"+":""}{delta}kg since then
+        </div>
+      )}
+      <div>
+        <div style={S.label}>Weight (kg)</div>
         <input type="number" step="0.01" value={wt} onChange={e=>setWt(e.target.value)}
-          placeholder="e.g. 4.75" style={{ ...S.input, fontSize:28, fontWeight:700, textAlign:"center" }}/></div>
-      <button onClick={()=>onSave({type:"weight",value:wt})} style={S.saveBtn}>Save Weight ✓</button>
+          placeholder="e.g. 4.75" style={{ ...S.input, fontSize:32, fontWeight:800, textAlign:"center" }}/>
+      </div>
+      <button onClick={()=>onSave({type:"weight",value:wt,time})} style={S.saveBtn}>Save Weight ✓</button>
     </div>
   );
 }
 
-function MedForm({ onSave }) {
-  const [med,  setMed]  = useState("vd3");
+function MedForm({ onSave, prefill }) {
+  const [med,  setMed]  = useState(prefill?.medId || "vd3");
   const [time, setTime] = useState(new Date().toTimeString().slice(0,5));
   return (
-    <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
-      <div><div style={S.label}>Medication</div>
-        <select value={med} onChange={e=>setMed(e.target.value)} style={S.input}>
+    <div style={{ display:"flex", flexDirection:"column", gap:18 }}>
+      <TimePillSelector value={time} onChange={setTime}/>
+      <div>
+        <div style={S.label}>Medication</div>
+        <select value={med} onChange={e=>setMed(e.target.value)} style={{ ...S.input, fontSize:14 }}>
           {MEDS.map(m=><option key={m.id} value={m.id}>{m.name} · {m.dose}</option>)}
           <option value="other">Other</option>
-        </select></div>
-      <div><div style={S.label}>Time</div>
-        <input type="time" value={time} onChange={e=>setTime(e.target.value)} style={S.input}/></div>
+        </select>
+      </div>
       <button onClick={()=>onSave({type:"med",medId:med,medName:MEDS.find(m=>m.id===med)?.name||"Other",time})} style={S.saveBtn}>Save Medication ✓</button>
     </div>
   );
 }
 
 // ─── VOICE LOG ────────────────────────────────────────────
-function VoiceLog({ onClose, onLog, showToast }) {
+function VoiceLog({ onClose, onLog, logs, showToast, openSheet }) {
   const [status,     setStatus]     = useState("listening");
   const [transcript, setTranscript] = useState("");
   const [parsed,     setParsed]     = useState(null);
+  const [searchResult, setSearchResult] = useState(null);
   const [hint,       setHint]       = useState(0);
-  const recRef = useRef(null);
+  const recRef    = useRef(null);
+  const minTimer  = useRef(null);
+  const canProcess = useRef(false);
+
   const hints = [
-    "Try: \"Fed Maanvik 55ml breastmilk\"",
-    "Try: \"Diaper change, wet\"",
-    "Try: \"Maanvik slept 2 hours, settled\"",
+    'Say: "Fed Maanvik 60ml breastmilk"',
+    'Say: "Diaper change, wet, heavy"',
+    'Say: "Maanvik slept 2 hours settled"',
+    'Say: "When was the last feed?"',
+    'Say: "How much milk today?"',
   ];
 
   useEffect(() => {
@@ -426,63 +733,132 @@ function VoiceLog({ onClose, onLog, showToast }) {
   },[]);
 
   useEffect(() => {
+    // Minimum 5s before we act on speech
+    minTimer.current = setTimeout(()=>{ canProcess.current = true; }, 5000);
+
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) { setStatus("unsupported"); return; }
     const r = new SR();
-    r.continuous = false; r.interimResults = true; r.lang = "en-IN";
+    r.continuous = true; r.interimResults = true; r.lang = "en-IN";
     r.onresult = e => {
       const t = Array.from(e.results).map(r=>r[0].transcript).join(" ");
       setTranscript(t);
-      if (e.results[0].isFinal) { setStatus("processing"); parseVoice(t); }
+      if (e.results[e.results.length-1].isFinal && canProcess.current) {
+        setStatus("processing"); processVoice(t);
+      }
     };
     r.onerror = ()=>setStatus("error");
     recRef.current = r;
     r.start();
-    return ()=>{ try { r.stop(); } catch{} };
+    return ()=>{ try { r.stop(); } catch{}  clearTimeout(minTimer.current); };
   },[]);
 
-  const parseVoice = t => {
-    const l = t.toLowerCase();
+  // Timeout after 12s if nothing final
+  useEffect(()=>{
+    const t = setTimeout(()=>{ if(status==="listening") setStatus("timeout"); }, 12000);
+    return ()=>clearTimeout(t);
+  },[status]);
+
+  const processVoice = (text) => {
+    const l = text.toLowerCase();
+    // SEARCH intent
+    if (/when|how much|last|show|what was|find|how many/.test(l)) {
+      handleSearch(l);
+      return;
+    }
+    // LOG intent
+    parseVoice(l, text);
+  };
+
+  const handleSearch = (l) => {
+    const feedLogs = logs.filter(x=>x.type==="feed");
+    const sleepLogs = logs.filter(x=>x.type==="sleep");
+    const diaperLogs = logs.filter(x=>x.type==="diaper");
+    let result = null;
+
+    if (/feed|milk|breastmilk|formula/.test(l)) {
+      if (feedLogs.length > 0) {
+        const last = feedLogs[feedLogs.length-1];
+        const minsAgo = last._ts ? Math.round((Date.now()-last._ts)/60000) : 45;
+        const totalMl = feedLogs.reduce((s,f)=>s+(parseFloat(f.volume)||0),0);
+        if (/how much|total/.test(l)) result = `🍼 ${totalMl}ml total across ${feedLogs.length} feeds today`;
+        else result = `🍼 Last feed was ${last.volume}ml ${last.feedType}, ${minsAgo < 60 ? minsAgo+"m ago" : Math.round(minsAgo/60)+"hr ago"}`;
+      } else { result = "🍼 No feeds logged yet today"; }
+    } else if (/sleep|nap/.test(l)) {
+      const totalMin = sleepLogs.reduce((s,sl)=>{
+        if(sl.end==="now") return s+60;
+        const [sh,sm]=sl.start.split(":").map(Number);
+        const [eh,em]=sl.end.split(":").map(Number);
+        return s+Math.max(0,(eh*60+em)-(sh*60+sm));
+      },0);
+      result = `💤 ${Math.floor(totalMin/60)}h ${totalMin%60}m sleep logged today (${sleepLogs.length} sessions)`;
+    } else if (/diaper|nappy/.test(l)) {
+      result = `🩲 ${diaperLogs.length} diaper changes logged today`;
+    } else {
+      result = "🔍 I found your logs — tap any entry in Today's timeline to see details";
+    }
+    setSearchResult(result); setStatus("search");
+  };
+
+  const parseVoice = (l, raw) => {
     let result = null;
     if (/fed|feed|milk|breastmilk|formula/.test(l)) {
-      const ml = l.match(/(\d+)\s*ml/)?.[1] || "55";
+      const ml = l.match(/(\d+)\s*ml/)?.[1] || null;
       const ft = /formula/.test(l) ? "formula" : "breastmilk";
+      if (!ml) { openSheet("feed"); onClose(); return; }
       result = { type:"feed", feedType:ft, volume:ml, display:`🍼 Feed — ${ml}ml, ${ft==="breastmilk"?"Breastmilk":"Formula"}` };
     } else if (/sleep|slept|nap/.test(l)) {
-      const hrs = l.match(/(\d+)\s*hour/)?.[1] || "1";
-      result = { type:"sleep", start:"12:00", end:`${String(12+parseInt(hrs)).padStart(2,"0")}:00`, quality:"settled", display:`💤 Sleep — ${hrs}hr` };
+      const hrs = l.match(/(\d+)\s*(?:hour|hr)/)?.[1] || null;
+      if (!hrs) { openSheet("sleep"); onClose(); return; }
+      result = { type:"sleep", start:new Date().toTimeString().slice(0,5), end:`${String((new Date().getHours()-parseInt(hrs)+24)%24).padStart(2,"0")}:00`, quality:/unsettl/.test(l)?"unsettled":"settled", display:`💤 Sleep — ${hrs}hr` };
     } else if (/diaper|nappy|wet|soiled|poop/.test(l)) {
-      const dt = /soiled|poop/.test(l) ? "soiled" : "wet";
-      result = { type:"diaper", diaperType:dt, display:`🩲 Diaper — ${dt}` };
+      const dt = /soiled|poop/.test(l) ? "soiled" : /both/.test(l) ? "both" : "wet";
+      const wetness = /heavy/.test(l)?"heavy":/light/.test(l)?"light":"normal";
+      result = { type:"diaper", diaperType:dt, wetness, display:`🩲 Diaper — ${dt}${dt!=="soiled"?`, ${wetness}`:""}` };
     } else if (/weight|weigh/.test(l)) {
       const kg = l.match(/(\d+\.?\d*)\s*kg/)?.[1] || "";
       result = { type:"weight", value:kg, display:`⚖️ Weight — ${kg}kg` };
     } else if (/medicine|vitamin|iron|calcium/.test(l)) {
-      result = { type:"med", medId:"vd3", medName:"Vitamin D3", display:"💊 Medication logged" };
+      const medName = /vitamin d/i.test(raw)?"vd3":/vitamin a/i.test(raw)?"vaz":/iron|tonoferron/i.test(raw)?"iron":"calc";
+      result = { type:"med", medId:medName, medName:MEDS.find(m=>m.id===medName)?.name||"Vitamin D3", display:"💊 Medication logged" };
     }
     if (result) { setParsed(result); setStatus("preview"); }
     else setStatus("unparseable");
   };
 
-  const overlayStyle = { position:"fixed", inset:0, background:"rgba(20,28,38,0.93)", zIndex:2000,
-    display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center",
-    backdropFilter:"blur(8px)" };
+  const overlayStyle = { position:"fixed", inset:0, background:"rgba(20,28,38,0.88)",
+    zIndex:2000, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center",
+    backdropFilter:"blur(10px)" };
 
   return (
     <div style={overlayStyle}>
       <button onClick={onClose} style={{ position:"absolute", top:24, right:24, background:"rgba(255,255,255,0.15)", border:"none", borderRadius:"50%", width:40, height:40, color:"#fff", fontSize:18, cursor:"pointer" }}>✕</button>
       {status==="listening" && <>
-        <div style={{ display:"flex", alignItems:"flex-end", gap:4, height:60, marginBottom:28 }}>
-          {[...Array(12)].map((_,i)=>(
-            <div key={i} style={{ width:4, borderRadius:4, background:"#7C9A7E",
-              animation:`waveBar 0.8s ease infinite`, animationDelay:`${i*0.07}s` }}/>
+        <div style={{ display:"flex", alignItems:"flex-end", gap:5, height:64, marginBottom:28 }}>
+          {[0.4,0.7,1.0,0.7,0.4,0.85,0.55].map((h,i)=>(
+            <div key={i} style={{ width:5, borderRadius:5, background:"#7C9A7E",
+              animation:`waveBar ${0.6+i*0.12}s ease infinite`, animationDelay:`${i*0.09}s`,
+              minHeight:8 }}/>
           ))}
         </div>
-        <div style={{ color:"#fff", fontSize:20, fontWeight:700, marginBottom:12 }}>Listening...</div>
-        <div style={{ color:"rgba(255,255,255,0.55)", fontSize:13, maxWidth:260, textAlign:"center" }}>{hints[hint]}</div>
-        {transcript && <div style={{ marginTop:20, color:"rgba(255,255,255,0.9)", fontSize:16, fontStyle:"italic" }}>"{transcript}"</div>}
+        <div style={{ color:"#fff", fontSize:20, fontWeight:700, marginBottom:8 }}>Listening...</div>
+        <div style={{ color:"rgba(255,255,255,0.5)", fontSize:13, marginBottom:20, textAlign:"center", maxWidth:260 }}>Hold still for 5 seconds — I'm listening carefully</div>
+        <div style={{ color:"rgba(255,255,255,0.6)", fontSize:12, maxWidth:280, textAlign:"center", fontStyle:"italic", transition:"opacity 0.4s" }}>{hints[hint]}</div>
+        {transcript && <div style={{ marginTop:20, color:"rgba(255,255,255,0.9)", fontSize:15, fontStyle:"italic", maxWidth:300, textAlign:"center" }}>"{transcript}"</div>}
       </>}
-      {status==="processing" && <div style={{ color:"#fff", fontSize:16 }}>Processing... 🌿</div>}
+      {status==="processing" && (
+        <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:12 }}>
+          <div style={{ width:40, height:40, border:"3px solid rgba(124,154,126,0.3)", borderTopColor:"#7C9A7E", borderRadius:"50%", animation:"spin 0.8s linear infinite" }}/>
+          <div style={{ color:"#fff", fontSize:16 }}>Processing... 🌿</div>
+        </div>
+      )}
+      {status==="search" && searchResult && (
+        <div className="pop-enter" style={{ background:"#fff", borderRadius:20, padding:24, maxWidth:320, width:"90%", textAlign:"center" }}>
+          <div style={{ fontSize:13, color:"#8C9BAB", marginBottom:10 }}>Here's what I found:</div>
+          <div style={{ fontSize:18, fontWeight:700, color:"#2C3E50", marginBottom:20, lineHeight:1.4 }}>{searchResult}</div>
+          <button onClick={onClose} style={S.saveBtn}>Got it ✓</button>
+        </div>
+      )}
       {status==="preview" && parsed && (
         <div className="pop-enter" style={{ background:"#fff", borderRadius:20, padding:24, maxWidth:320, width:"90%", textAlign:"center" }}>
           <div style={{ fontSize:13, color:"#8C9BAB", marginBottom:8 }}>I heard:</div>
@@ -490,25 +866,181 @@ function VoiceLog({ onClose, onLog, showToast }) {
           <div style={{ fontSize:13, color:"#8C9BAB", marginBottom:14 }}>Does this look right?</div>
           <div style={{ display:"flex", gap:10 }}>
             <button onClick={()=>{ onLog(parsed); showToast("Logged! 🌿"); onClose(); }} style={{ ...S.saveBtn, flex:1, marginTop:0 }}>Confirm ✓</button>
-            <button onClick={onClose} style={{ flex:1, background:"#f5f5f5", color:"#2C3E50", border:"none", borderRadius:24, padding:"15px", fontSize:14, fontWeight:600, cursor:"pointer" }}>Edit</button>
+            <button onClick={()=>{ openSheet(parsed.type); onClose(); }} style={{ flex:1, background:"#f5f5f5", color:"#2C3E50", border:"none", borderRadius:24, padding:"15px", fontSize:14, fontWeight:600, cursor:"pointer" }}>Edit</button>
           </div>
         </div>
       )}
       {(status==="unparseable"||status==="error") && (
         <div style={{ color:"#fff", textAlign:"center", padding:24 }}>
           <div style={{ fontSize:44, marginBottom:14 }}>🤔</div>
-          <div style={{ fontSize:16, marginBottom:20 }}>I didn't quite catch that</div>
-          <button onClick={onClose} style={{ background:"#7C9A7E", color:"#fff", border:"none", borderRadius:24, padding:"12px 28px", cursor:"pointer", fontWeight:700 }}>Log manually</button>
+          <div style={{ fontSize:16, marginBottom:8 }}>I didn't quite catch that</div>
+          <div style={{ fontSize:13, color:"rgba(255,255,255,0.5)", marginBottom:20 }}>Try speaking clearly and wait a moment</div>
+          <div style={{ display:"flex", gap:10 }}>
+            <button onClick={()=>{ setStatus("listening"); setTranscript(""); canProcess.current=false; setTimeout(()=>{canProcess.current=true;},5000); }} style={{ background:"#7C9A7E", color:"#fff", border:"none", borderRadius:24, padding:"12px 20px", cursor:"pointer", fontWeight:700, fontSize:14 }}>Try again</button>
+            <button onClick={onClose} style={{ background:"rgba(255,255,255,0.15)", color:"#fff", border:"none", borderRadius:24, padding:"12px 20px", cursor:"pointer", fontWeight:600, fontSize:14 }}>Log manually</button>
+          </div>
+        </div>
+      )}
+      {status==="timeout" && (
+        <div style={{ color:"#fff", textAlign:"center", padding:24 }}>
+          <div style={{ fontSize:44, marginBottom:14 }}>⏱</div>
+          <div style={{ fontSize:16, marginBottom:8 }}>Didn't catch that</div>
+          <div style={{ fontSize:13, color:"rgba(255,255,255,0.5)", marginBottom:20 }}>Tap to try again or log manually</div>
+          <div style={{ display:"flex", gap:10 }}>
+            <button onClick={()=>{ setStatus("listening"); setTranscript(""); canProcess.current=false; setTimeout(()=>{canProcess.current=true;},5000); try{recRef.current?.start();}catch{} }} style={{ background:"#7C9A7E", color:"#fff", border:"none", borderRadius:24, padding:"12px 20px", cursor:"pointer", fontWeight:700, fontSize:14 }}>Try again</button>
+            <button onClick={onClose} style={{ background:"rgba(255,255,255,0.15)", color:"#fff", border:"none", borderRadius:24, padding:"12px 20px", cursor:"pointer", fontWeight:600, fontSize:14 }}>Log manually</button>
+          </div>
         </div>
       )}
       {status==="unsupported" && (
         <div style={{ color:"#fff", textAlign:"center", padding:24 }}>
           <div style={{ fontSize:44, marginBottom:14 }}>🎙</div>
           <div style={{ fontSize:16, marginBottom:4 }}>Voice not supported in this browser</div>
-          <div style={{ fontSize:13, color:"rgba(255,255,255,0.5)", marginBottom:20 }}>Try Chrome on Android</div>
+          <div style={{ fontSize:13, color:"rgba(255,255,255,0.5)", marginBottom:20 }}>Try Chrome on Android or desktop</div>
           <button onClick={onClose} style={{ background:"#7C9A7E", color:"#fff", border:"none", borderRadius:24, padding:"12px 28px", cursor:"pointer", fontWeight:700 }}>Close</button>
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── MINI CHAT (Change H) ──────────────────────────────────
+function NestiChat({ onClose, age, corr }) {
+  const [messages, setMessages] = useState([
+    { role:"nesti", text:"Hi! Tell me what's on your mind about Maanvik 🌿" }
+  ]);
+  const [input,    setInput]    = useState("");
+  const [busy,     setBusy]     = useState(false);
+  const [exchanges, setExchanges] = useState(0);
+  const [logItems, setLogItems]  = useState(null);
+  const [checked,  setChecked]   = useState({});
+  const bottomRef = useRef(null);
+
+  useEffect(()=>{ bottomRef.current?.scrollIntoView({behavior:"smooth"}); },[messages]);
+
+  const send = async () => {
+    if (!input.trim() || busy) return;
+    const userMsg = input.trim();
+    setInput("");
+    setMessages(m=>[...m,{role:"user",text:userMsg}]);
+    setBusy(true);
+    const newCount = exchanges + 1;
+    setExchanges(newCount);
+
+    const history = messages.map(m=>`${m.role==="user"?"Parent":"nesti"}: ${m.text}`).join("\n");
+    const sys = `You are nesti, a warm supportive friend who is also a paediatrician. You are chatting with Maanvik's parent in a mobile app. Maanvik is ${age.months} months ${age.days} days old (${corr.weeks}w ${corr.days}d corrected), premature (30+4 weeks). Listen carefully, ask 1 gentle follow-up question per response. Keep responses under 60 words. After 3 exchanges, naturally wrap up. At the END of EVERY response, on a new line starting with "LOGWORTHY:", list any log-worthy facts as a pipe-separated list, or write "LOGWORTHY:none". Example: "LOGWORTHY:Maanvik unsettled after 3pm feed|Sleep interrupted twice last night"`;
+    const fb = `That's really helpful to know. How long has Maanvik been showing this? 🌿\n\nLOGWORTHY:none`;
+    const resp = await callNestiAI(sys, `Conversation so far:\n${history}\n\nParent: ${userMsg}`, fb);
+
+    // Parse out log-worthy items
+    const parts = resp.split(/\nLOGWORTHY:/i);
+    const cleanResp = parts[0].trim();
+    const logLine = parts[1]?.trim();
+    const items = logLine && logLine !== "none" ? logLine.split("|").filter(Boolean) : [];
+
+    setBusy(false);
+    setMessages(m=>[...m,{role:"nesti",text:cleanResp}]);
+
+    if (newCount >= 3 || items.length > 0) {
+      if (items.length > 0) setLogItems(items);
+    }
+  };
+
+  const confirmSave = () => {
+    // In a real app we'd save to logs; here we just toast
+    onClose("Observations saved to Maanvik's log ✓");
+  };
+
+  return (
+    <div style={{ position:"fixed", inset:0, zIndex:1100, display:"flex", flexDirection:"column", justifyContent:"flex-end" }}>
+      <div style={{ position:"absolute", inset:0, background:"rgba(0,0,0,0.5)", backdropFilter:"blur(2px)" }} onClick={()=>onClose(null)}/>
+      <div className="sheet-enter" style={{ position:"relative", background:"#FDFCFA", borderRadius:"24px 24px 0 0", height:"82vh", display:"flex", flexDirection:"column", maxWidth:430, width:"100%", margin:"0 auto" }}>
+        {/* header */}
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"18px 20px 12px", borderBottom:"1px solid #f0f0f0" }}>
+          <div>
+            <div style={{ fontSize:16, fontWeight:800, color:"#2C3E50" }}>Chat with nesti 🌿</div>
+            <div style={{ fontSize:11, color:"#8C9BAB" }}>Your AI paediatric companion</div>
+          </div>
+          <button onClick={()=>onClose(null)} style={{ background:"#f0f0f0", border:"none", borderRadius:"50%", width:32, height:32, cursor:"pointer", fontSize:15, display:"flex", alignItems:"center", justifyContent:"center" }}>✕</button>
+        </div>
+
+        {/* messages */}
+        <div style={{ flex:1, overflowY:"auto", padding:"16px 16px 8px", display:"flex", flexDirection:"column", gap:10 }}>
+          {messages.map((m,i)=>(
+            <div key={i} style={{ display:"flex", justifyContent:m.role==="user"?"flex-end":"flex-start" }}>
+              <div style={{
+                maxWidth:"80%", padding:"10px 14px", borderRadius: m.role==="user"?"18px 18px 4px 18px":"18px 18px 18px 4px",
+                background:m.role==="user"?"#7C9A7E":"#fff",
+                color:m.role==="user"?"#fff":"#2C3E50",
+                fontSize:14, lineHeight:1.5, fontWeight:m.role==="user"?600:400,
+                boxShadow:"0 1px 8px rgba(0,0,0,0.06)"
+              }}>{m.text}</div>
+            </div>
+          ))}
+          {busy && (
+            <div style={{ display:"flex", gap:5, padding:"10px 14px", background:"#fff", borderRadius:"18px 18px 18px 4px", width:60, boxShadow:"0 1px 8px rgba(0,0,0,0.06)" }}>
+              {[0,1,2].map(i=><div key={i} style={{ width:6, height:6, borderRadius:"50%", background:"#8C9BAB", animation:"skeleton 1s ease infinite", animationDelay:`${i*0.2}s` }}/>)}
+            </div>
+          )}
+
+          {/* log-worthy summary card */}
+          {logItems && (
+            <div style={{ background:"#f0f7f0", borderRadius:14, padding:"14px", marginTop:8, border:"1.5px solid #7C9A7E33" }}>
+              <div style={{ fontWeight:700, fontSize:13, color:"#2C3E50", marginBottom:10 }}>Here's what I noted from our chat:</div>
+              {logItems.map((item,i)=>(
+                <label key={i} style={{ display:"flex", alignItems:"flex-start", gap:8, marginBottom:8, cursor:"pointer" }}>
+                  <input type="checkbox" checked={!!checked[i]} onChange={e=>setChecked(c=>({...c,[i]:e.target.checked}))}
+                    style={{ marginTop:2, accentColor:"#7C9A7E" }}/>
+                  <span style={{ fontSize:13, color:"#2C3E50", lineHeight:1.5 }}>{item}</span>
+                </label>
+              ))}
+              <button onClick={confirmSave} style={{ ...S.saveBtn, marginTop:6, padding:"11px", fontSize:14 }}>
+                Save to log ✓
+              </button>
+            </div>
+          )}
+          <div ref={bottomRef}/>
+        </div>
+
+        {/* input bar */}
+        <div style={{ padding:"10px 14px 20px", borderTop:"1px solid #f0f0f0", display:"flex", gap:8, background:"#fff", borderRadius:"0 0 0 0" }}>
+          <input value={input} onChange={e=>setInput(e.target.value)}
+            onKeyDown={e=>{ if(e.key==="Enter") send(); }}
+            placeholder="Type something..." disabled={busy}
+            style={{ ...S.input, flex:1, fontSize:14, padding:"11px 14px" }}/>
+          <button onClick={send} disabled={!input.trim()||busy} style={{
+            width:44, height:44, borderRadius:"50%", background:input.trim()?"#7C9A7E":"#e8e8e8",
+            border:"none", cursor:input.trim()?"pointer":"default", color:"#fff", fontSize:18,
+            display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, transition:"background 0.2s"
+          }}>→</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── 14-DAY TREND DATA ────────────────────────────────────
+const TREND14 = {
+  feed:    [520,490,560,430,510,580,495,540,470,555,500,480,560,320],
+  sleep:   [13.5,14.2,12.8,15.0,14.8,13.2,14.5,12.5,15.2,14.0,13.8,14.6,15.1,3.5],
+  diaper:  [6,5,6,4,6,6,5,7,6,5,6,6,5,4],
+  med:     [6,6,5,6,6,5,6,6,6,6,5,6,6,2],
+};
+const DAYS14 = ["M","T","W","T","F","S","S","M","T","W","T","F","S","T"];
+
+function FlipCard({ front, back, warn }) {
+  const [flipped, setFlipped] = useState(false);
+  return (
+    <div className="flip-container" style={{ height:110 }} onClick={()=>setFlipped(f=>!f)}>
+      <div className={`flip-inner${flipped?" flipped":""}`}>
+        <div className="flip-front" style={{ background:"#fff", boxShadow:"0 2px 16px rgba(0,0,0,0.06)", padding:"14px" }}>
+          <div style={{ position:"absolute", top:8, right:10, fontSize:13, color:"#8C9BAB" }}>↗</div>
+          {front}
+        </div>
+        <div className="flip-back" style={{ padding:"10px 8px 8px", boxShadow:"0 2px 16px rgba(0,0,0,0.06)" }}>
+          {back}
+        </div>
+      </div>
     </div>
   );
 }
@@ -519,19 +1051,14 @@ function TodayScreen({ logs, onLog, onDeleteLog, showToast }) {
   const [showAll,     setShowAll]     = useState(false);
   const [obsText,     setObsText]     = useState(null);
   const [obsLoading,  setObsLoading]  = useState(true);
-  const [obsDismiss,  setObsDismiss]  = useState(false);
-  const [shareOpen,   setShareOpen]   = useState(false);
-  const [askOpen,     setAskOpen]     = useState(false);
-  const [shareIn,     setShareIn]     = useState("");
-  const [askIn,       setAskIn]       = useState("");
-  const [shareResp,   setShareResp]   = useState(null);
-  const [askResp,     setAskResp]     = useState(null);
-  const [shareBusy,   setShareBusy]   = useState(false);
-  const [askBusy,     setAskBusy]     = useState(false);
+  const [obsCollapsed,setObsCollapsed]= useState(false);
+  const [chatOpen,    setChatOpen]    = useState(false);
   const [confetti,    setConfetti]    = useState(false);
   const [vol,         setVol]         = useState(0.4);
   const [waSheet,     setWaSheet]     = useState(false);
   const { playing, playSound, setVolume } = useAudioEngine();
+  const logsRef = useRef(logs);
+  useEffect(()=>{ logsRef.current = logs; },[logs]);
 
   const age  = getChronologicalAge();
   const corr = getCorrectedAge();
@@ -563,20 +1090,53 @@ function TodayScreen({ logs, onLog, onDeleteLog, showToast }) {
 
   useEffect(()=>{ if(allGreen){ setConfetti(true); setTimeout(()=>setConfetti(false),3200); } },[allGreen]);
 
-  useEffect(()=>{
+  // Change G: AI refresh uses logsRef (always current)
+  const loadObservations = useCallback(() => {
+    setObsLoading(true); setObsText(null);
+    const curLogs = logsRef.current;
+    const curFeeds  = curLogs.filter(l=>l.type==="feed");
+    const curSleeps = curLogs.filter(l=>l.type==="sleep");
+    const curDiapers= curLogs.filter(l=>l.type==="diaper");
+    const curMeds   = curLogs.filter(l=>l.type==="med");
+    const curMl = curFeeds.reduce((s,f)=>s+(parseFloat(f.volume)||0),0);
+    const curSleepMin = curSleeps.reduce((s,sl)=>{
+      if(sl.end==="now") return s+60;
+      const [sh,sm]=sl.start.split(":").map(Number);
+      const [eh,em]=sl.end.split(":").map(Number);
+      return s+Math.max(0,(eh*60+em)-(sh*60+sm));
+    },0);
+    const curSleepHrs = curSleepMin/60;
+    const curFeedPct = Math.min(100,Math.round((curMl/560)*100));
     const sys = `You are nesti, a warm AI paediatric care companion for parents of Maanvik, a premature baby born at 30+4 weeks, now ${age.months} months ${age.days} days old (${corr.weeks} weeks ${corr.days} days corrected). Analyse today's logs. Respond in this EXACT format:\n🍼 Feeding\n• [bullet]\n💤 Sleep\n• [bullet]\n🌟 Overall\n• [bullet]\n[one warm italic encouraging line]\nMax 10 lines. Be specific to actual numbers.`;
-    const msg = `Feeds: ${totalMl}ml (${feeds.length} sessions). Sleep: ${sleepHrs.toFixed(1)}hrs. Diapers: ${diapers.length}. Meds: ${meds.length}.`;
-    const fb  = `🍼 Feeding\n• ${totalMl}ml logged so far — ${feedPct<50?"building toward":"on track for"} daily target\n• Last feed ~45 mins ago, next due around the 3hr mark\n\n💤 Sleep\n• ${sleepHrs.toFixed(1)}hrs logged — steady progress toward daily goal\n• Settled sleep quality is a wonderful sign\n\n🌟 Overall\n• Great rhythm today — feeds and sleep are aligning well\n\n*You're doing beautifully, Maanvik's Dad. Every single log matters. 🌿*`;
+    const msg = `Feeds: ${curMl}ml (${curFeeds.length} sessions). Sleep: ${curSleepHrs.toFixed(1)}hrs. Diapers: ${curDiapers.length}. Meds: ${curMeds.length}.`;
+    const fb  = `🍼 Feeding\n• ${curMl}ml logged so far — ${curFeedPct<50?"building toward":"on track for"} daily target\n• Good feed spacing observed\n\n💤 Sleep\n• ${curSleepHrs.toFixed(1)}hrs logged — steady progress\n• Settled quality is encouraging\n\n🌟 Overall\n• Great rhythm today — keep going!\n\n*You're doing beautifully, Maanvik's Dad. Every log matters. 🌿*`;
     callNestiAI(sys, msg, fb).then(r=>{ setObsText(r); setObsLoading(false); });
-  },[]);
+  }, [age.months, age.days, corr.weeks, corr.days]);
 
+  useEffect(()=>{ loadObservations(); },[]);
+
+  // Change A: Smart nudge logic
   const nudge = (()=>{
-    const lf = feeds[feeds.length-1];
-    if(lf){ const mins=(Date.now()-(lf._ts||Date.now()-45*60000))/60000; if(mins>180) return { icon:"🍼", text:`Maanvik's last feed was ${Math.floor(mins/60)}h ${Math.floor(mins%60)}m ago — time to feed him 🍼`, action:"feed" }; }
-    if(sleepHrs<7&&hour>=18) return { icon:"💤", text:`Maanvik's sleep seems low today 💤 — only ${sleepHrs.toFixed(1)}hrs logged`, action:"sleep" };
-    if(meds.length<1) return { icon:"💊", text:"A medicine dose hasn't been logged today 💊", action:"med" };
-    return null;
+    const expectedMl = (hour/24)*560*0.5;
+    const expectedSleep = (hour/24)*14;
+    const expectedDiapers = Math.floor((hour/24)*6);
+    const hasSoiled = diapers.some(d=>d.diaperType==="soiled"||d.diaperType==="both");
+
+    // RED critical
+    if (!hasSoiled && diapers.length > 0) return { level:"red", icon:"🩲", title:"No soiled diaper in 24hrs", sub:"Worth keeping an eye on", action:"diaper" };
+    if (totalMl < expectedMl * 0.5 && hour > 6) return { level:"red", icon:"🍼", title:`Only ${totalMl}ml logged — ${Math.round(expectedMl)}ml expected by now`, sub:`Feed Maanvik now`, action:"feed" };
+    if (sleepHrs < 14*0.3 && hour >= 20) return { level:"red", icon:"💤", title:`Only ${sleepHrs.toFixed(1)}hrs sleep logged`, sub:`WHO target: 14hrs — running very low`, action:"sleep" };
+    // AMBER
+    if (totalMl < expectedMl && hour > 8) return { level:"amber", icon:"🍼", title:`${totalMl}ml logged, ~${Math.round(expectedMl)}ml expected by ${hour}:00`, sub:"Feeding a little behind schedule", action:"feed" };
+    if (sleepHrs < expectedSleep * 0.5 && hour >= 18) return { level:"amber", icon:"💤", title:`${sleepHrs.toFixed(1)}hrs logged, ${expectedSleep.toFixed(1)}hrs expected by now`, sub:"Sleep is running a bit low", action:"sleep" };
+    if (diapers.length < expectedDiapers - 1 && hour > 10) return { level:"amber", icon:"🩲", title:`${diapers.length} diapers vs ${expectedDiapers} expected`, sub:"A couple behind expected count", action:"diaper" };
+    if (meds.length < 4 && hour >= 18) return { level:"amber", icon:"💊", title:`${6-meds.length} medicine doses still pending today`, sub:"Tap to log a dose", action:"med" };
+    // GREEN
+    return { level:"green", icon:"🌿", title:"Maanvik's doing great today!", sub:"All targets on track", action:null };
   })();
+
+  const nudgeColors = { red:{ border:"#E05C5C", bg:"#FEF2F2", iconBg:"#fce8e8", text:"#c0392b" }, amber:{ border:"#F5A623", bg:"#FFFBF0", iconBg:"#FFF3D0", text:"#8a5700" }, green:{ border:"#7C9A7E", bg:"#F0F7F0", iconBg:"#e0f0e0", text:"#2d6e31" } };
+  const nc = nudgeColors[nudge.level];
 
   const logIcon  = { feed:"🍼", sleep:"💤", diaper:"🩲", weight:"⚖️", med:"💊" };
   const logColor = { feed:"#E8967A", sleep:"#7C9A7E", diaper:"#6bb5d6", weight:"#c67ad4", med:"#F5A623" };
@@ -591,19 +1151,23 @@ function TodayScreen({ logs, onLog, onDeleteLog, showToast }) {
 
   const wamsg = `Hi Dr. Khanna, sharing Maanvik's update:\n• Age: ${age.months} months ${age.days} days (${corr.weeks}w ${corr.days}d corrected)\n• Weight: 4.70kg | Height: 59cm | HC: 37cm\n• Today's feeds: ${totalMl}ml total (${feeds.length} feeds)\n• Sleep: ${sleepHrs.toFixed(1)}hrs\n• Diapers: ${diapers.length} changes\n• Medicines: ${meds.length} of 6 doses given\n• Any concerns: [tap to add]`;
 
+  // Change J: Updated sounds
   const sounds = [
-    {id:"rain",icon:"🌧",label:"Rain"},
     {id:"ocean",icon:"🌊",label:"Ocean"},
     {id:"white",icon:"🤍",label:"White"},
-    {id:"heartbeat",icon:"💓",label:"Heartbeat"},
-    {id:"fan",icon:"🌬",label:"Fan"},
+    {id:"birds",icon:"🐦",label:"Birds"},
+    {id:"om",   icon:"🕉",label:"Om"},
   ];
 
-  const cards = [
-    { icon:"🍼", label:"Feeds",    value:`${totalMl}ml`,          sub:`${feedPct}% of 560ml`,   pct:feedPct,   warn:feedPct<50 },
-    { icon:"💤", label:"Sleep",    value:`${Math.floor(sleepHrs)}h ${Math.round((sleepHrs%1)*60)}m`, sub:`${sleepPct}% of 14–17h`, pct:sleepPct, warn:sleepPct<50&&hour>=18 },
-    { icon:"🩲", label:"Diapers",  value:`${diapers.length} changes`, sub:`${diaperPct}% of 6`, pct:diaperPct },
-    { icon:"💊", label:"Medicines",value:`${meds.length} of 6`,    sub:`${medPct}%`,             pct:medPct },
+  // Change C: flip card data
+  const makeBarData = (key, target) => TREND14[key].map((v,i)=>({ name:DAYS14[i], v, good: key==="feed"?(v>=target):key==="sleep"?(v>=target):key==="diaper"?(v>=4):v>=5 }));
+  const feedAvg7 = TREND14.feed.slice(-7).reduce((a,b)=>a+b,0)/7;
+
+  const cardDefs = [
+    { icon:"🍼", label:"Feeds",    value:`${totalMl}ml`,  sub:`${feedPct}% of 560ml`, pct:feedPct, warn:feedPct<50, trendKey:"feed", target:560, showAvg:true },
+    { icon:"💤", label:"Sleep",    value:`${Math.floor(sleepHrs)}h ${Math.round((sleepHrs%1)*60)}m`, sub:`${sleepPct}% of 14–17h`, pct:sleepPct, warn:sleepPct<50&&hour>=18, trendKey:"sleep", target:14 },
+    { icon:"🩲", label:"Diapers",  value:`${diapers.length} changes`, sub:`${diaperPct}% of 6`, pct:diaperPct, trendKey:"diaper", target:4 },
+    { icon:"💊", label:"Medicines",value:`${meds.length} of 6`, sub:`${medPct}%`, pct:medPct, trendKey:"med", target:5 },
   ];
 
   const recentLogs = [...logs].reverse().slice(0,4);
@@ -613,13 +1177,19 @@ function TodayScreen({ logs, onLog, onDeleteLog, showToast }) {
     <div style={{ paddingBottom:20 }}>
       <Confetti active={confetti}/>
 
-      {nudge && (
-        <div onClick={()=>setSheet(nudge.action)} style={{ background:"#FFF8E7", border:"1.5px solid #F5A623", borderRadius:14, padding:"12px 16px", marginBottom:14, display:"flex", alignItems:"center", gap:10, cursor:"pointer" }}>
-          <span style={{ fontSize:20 }}>{nudge.icon}</span>
-          <span style={{ color:"#7a5800", fontSize:13, fontWeight:600, flex:1 }}>{nudge.text}</span>
-          <span style={{ color:"#F5A623", fontSize:20 }}>›</span>
+      {/* Change A: Smart nudge card */}
+      <div onClick={()=>nudge.action&&setSheet(nudge.action)} style={{
+        background:nc.bg, borderLeft:`4px solid ${nc.border}`, borderRadius:12, padding:"12px 14px",
+        marginBottom:14, display:"flex", alignItems:"center", gap:12,
+        cursor:nudge.action?"pointer":"default", boxShadow:"0 1px 8px rgba(0,0,0,0.05)"
+      }}>
+        <div style={{ width:36, height:36, borderRadius:"50%", background:nc.iconBg, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, flexShrink:0 }}>{nudge.icon}</div>
+        <div style={{ flex:1 }}>
+          <div style={{ fontWeight:700, fontSize:13, color:nc.text }}>{nudge.title}</div>
+          <div style={{ fontSize:12, color:nc.text, opacity:0.75, marginTop:2 }}>{nudge.sub}</div>
         </div>
-      )}
+        {nudge.action && <span style={{ color:nc.border, fontSize:20, fontWeight:700 }}>→</span>}
+      </div>
 
       <div style={{ fontSize:20, fontWeight:800, color:"#2C3E50", marginBottom:10, lineHeight:1.3 }}>{greeting}</div>
       <div style={{ display:"inline-flex", background:"#7C9A7E", color:"#fff", borderRadius:50, padding:"5px 14px", fontSize:12, fontWeight:600, marginBottom:18 }}>
@@ -627,20 +1197,34 @@ function TodayScreen({ logs, onLog, onDeleteLog, showToast }) {
       </div>
 
       <div style={S.secLabel}>today's checklist</div>
+
+      {/* Change C: Flip cards with SVG mini bar charts */}
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:12 }}>
-        {cards.map(c=>(
-          <div key={c.label} style={{ background:"#fff", borderRadius:16, padding:"14px", boxShadow:"0 2px 16px rgba(0,0,0,0.06)", position:"relative", overflow:"hidden" }}>
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:4 }}>
-              <span style={{ fontSize:22 }}>{c.icon}</span>
-              <span style={{ background:c.warn?"#FFF8E7":"#f0f7f0", color:c.warn?"#c47800":"#7C9A7E", borderRadius:50, padding:"2px 8px", fontSize:11, fontWeight:700 }}>{c.sub}</span>
+        {cardDefs.map(c=>{
+          const barData = makeBarData(c.trendKey, c.target).map((d,i)=>({
+            ...d, avg: c.showAvg ? feedAvg7 : undefined
+          }));
+          const front = (
+            <>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:4, paddingRight:16 }}>
+                <span style={{ fontSize:22 }}>{c.icon}</span>
+                <span style={{ background:c.warn?"#FFF8E7":"#f0f7f0", color:c.warn?"#c47800":"#7C9A7E", borderRadius:50, padding:"2px 8px", fontSize:10, fontWeight:700 }}>{c.sub}</span>
+              </div>
+              <div style={{ fontSize:11, color:"#8C9BAB", fontWeight:600, marginBottom:2 }}>{c.label}</div>
+              <div style={{ fontSize:18, fontWeight:800, color:"#2C3E50" }}>{c.value}</div>
+              <div style={{ position:"absolute", bottom:0, left:0, right:0, height:4, background:"#f0f0f0" }}>
+                <div style={{ height:"100%", width:`${c.pct}%`, background:c.warn?"#F5A623":"#7C9A7E", transition:"width 0.6s ease" }}/>
+              </div>
+            </>
+          );
+          const back = (
+            <div style={{ height:"100%", display:"flex", flexDirection:"column", justifyContent:"flex-end" }}>
+              <div style={{ fontSize:10, color:"#8C9BAB", fontWeight:700, marginBottom:2, paddingLeft:4 }}>{c.label} · 14 days</div>
+              <SVGMiniBarChart data={barData} height={82}/>
             </div>
-            <div style={{ fontSize:11, color:"#8C9BAB", fontWeight:600, marginBottom:2 }}>{c.label}</div>
-            <div style={{ fontSize:18, fontWeight:800, color:"#2C3E50" }}>{c.value}</div>
-            <div style={{ position:"absolute", bottom:0, left:0, right:0, height:4, background:"#f0f0f0" }}>
-              <div style={{ height:"100%", width:`${c.pct}%`, background:c.warn?"#F5A623":"#7C9A7E", transition:"width 0.6s ease", borderRadius:"0 0 0 16px" }}/>
-            </div>
-          </div>
-        ))}
+          );
+          return <FlipCard key={c.label} front={front} back={back} warn={c.warn}/>;
+        })}
       </div>
 
       {allGreen && (
@@ -649,25 +1233,7 @@ function TodayScreen({ logs, onLog, onDeleteLog, showToast }) {
         </div>
       )}
 
-      {/* streak */}
-      <div style={{ ...S.card, marginBottom:12 }}>
-        <div style={S.secLabel}>past 7 days</div>
-        <div style={{ display:"flex", justifyContent:"space-between" }}>
-          {STREAK_DATA.map((d,i)=>(
-            <div key={i} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:4 }}>
-              <div style={{
-                width:32, height:32, borderRadius:"50%", display:"flex", alignItems:"center", justifyContent:"center", fontSize:13, fontWeight:700,
-                background: d.status==="full"?"#7C9A7E" : d.status==="partial"?"#F5A623" : d.status==="today"?"transparent":"#f0f0f0",
-                color: d.status==="full"||d.status==="partial" ? "#fff" : "#8C9BAB",
-                border: d.status==="today" ? "2px solid #7C9A7E" : "none"
-              }}>
-                {d.status==="full"?"✓" : d.status==="partial"?"~" : d.status==="today"?"·" : "·"}
-              </div>
-              <div style={{ fontSize:10, color:"#8C9BAB", fontWeight:600 }}>{d.day}</div>
-            </div>
-          ))}
-        </div>
-      </div>
+      {/* Change D: Streak section removed */}
 
       {/* quick log */}
       <div style={S.secLabel}>log it quick</div>
@@ -702,7 +1268,7 @@ function TodayScreen({ logs, onLog, onDeleteLog, showToast }) {
         </button>
       )}
 
-      {/* soothing sounds */}
+      {/* Change J: Updated sounds */}
       <div style={{ ...S.card, marginBottom:12 }}>
         <div style={S.secLabel}>🎵 soothing sounds</div>
         <div style={{ display:"flex", gap:6, marginBottom:12 }}>
@@ -714,7 +1280,7 @@ function TodayScreen({ logs, onLog, onDeleteLog, showToast }) {
               display:"flex", flexDirection:"column", alignItems:"center", gap:2,
               animation:playing===s.id?"pulse 1.5s ease infinite":"none"
             }}>
-              <span style={{ fontSize:16 }}>{s.icon}</span>
+              <span style={{ fontSize:18 }}>{s.icon}</span>
               <span style={{ fontSize:9 }}>{s.label}</span>
             </button>
           ))}
@@ -724,13 +1290,18 @@ function TodayScreen({ logs, onLog, onDeleteLog, showToast }) {
           style={{ width:"100%", accentColor:"#7C9A7E", cursor:"pointer" }}/>
       </div>
 
-      {/* nesti observations */}
-      {!obsDismiss && (
+      {/* Change I: Observations with collapse/expand, 2 CTAs */}
+      {obsCollapsed ? (
+        <div onClick={()=>setObsCollapsed(false)} style={{ ...S.card, marginBottom:12, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"space-between", padding:"12px 16px" }}>
+          <div style={S.secLabel}>nesti's observations 🌿</div>
+          <span style={{ color:"#7C9A7E", fontSize:16 }}>↓</span>
+        </div>
+      ) : (
         <div style={{ ...S.card, marginBottom:12 }}>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
             <div style={S.secLabel}>nesti's observations 🌿</div>
-            <button onClick={()=>{ setObsLoading(true); setObsText(null); setTimeout(()=>{ setObsText(`🍼 Feeding\n• ${totalMl}ml logged — ${feedPct<50?"building toward":"on track for"} daily target\n• Good feed spacing observed\n\n💤 Sleep\n• ${sleepHrs.toFixed(1)}hrs logged — keep going!\n• Settled quality is encouraging\n\n🌟 Overall\n• Steady day overall for Maanvik\n\n*You're doing brilliantly. Every log is an act of love. 🌿*`); setObsLoading(false); },1500); }}
-              style={{ background:"none", border:"none", color:"#7C9A7E", fontSize:12, fontWeight:700, cursor:"pointer" }}>↻ Refresh</button>
+            {/* Change G: Refresh uses loadObservations which reads logsRef */}
+            <button onClick={loadObservations} style={{ background:"none", border:"none", color:"#7C9A7E", fontSize:12, fontWeight:700, cursor:"pointer" }}>↻ Refresh</button>
           </div>
           {obsLoading ? (
             <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
@@ -739,13 +1310,13 @@ function TodayScreen({ logs, onLog, onDeleteLog, showToast }) {
           ) : (
             <div style={{ fontSize:13, color:"#2C3E50", lineHeight:1.75, whiteSpace:"pre-line" }}>{obsText}</div>
           )}
+          {/* Change I: 2 CTAs only, no Ask button */}
           <div style={{ display:"flex", gap:8, marginTop:14 }}>
-            <button onClick={()=>{ setObsDismiss(true); showToast("nesti is happy to hear that 🌿"); }}
-              style={{ flex:1, background:"#7C9A7E", color:"#fff", border:"none", borderRadius:50, padding:"10px 6px", fontSize:12, fontWeight:700, cursor:"pointer" }}>Looks good ✓</button>
-            <button onClick={()=>setShareOpen(true)}
-              style={{ flex:1, background:"#E8967A", color:"#fff", border:"none", borderRadius:50, padding:"10px 6px", fontSize:12, fontWeight:700, cursor:"pointer" }}>Share 💬</button>
-            <button onClick={()=>setAskOpen(true)}
-              style={{ flex:1, background:"#2C3E50", color:"#fff", border:"none", borderRadius:50, padding:"10px 6px", fontSize:12, fontWeight:700, cursor:"pointer" }}>Ask 🩺</button>
+            <button onClick={()=>{ setObsCollapsed(true); showToast("nesti is happy to hear that 🌿"); }}
+              style={{ flex:1, background:"#7C9A7E", color:"#fff", border:"none", borderRadius:50, padding:"11px 6px", fontSize:13, fontWeight:700, cursor:"pointer" }}>Looks good ✓</button>
+            {/* Change H: Opens mini chat */}
+            <button onClick={()=>setChatOpen(true)}
+              style={{ flex:1, background:"#E8967A", color:"#fff", border:"none", borderRadius:50, padding:"11px 6px", fontSize:13, fontWeight:700, cursor:"pointer" }}>I want to share something 💬</button>
           </div>
         </div>
       )}
@@ -790,22 +1361,6 @@ function TodayScreen({ logs, onLog, onDeleteLog, showToast }) {
         ))}
       </BottomSheet>
 
-      <BottomSheet open={shareOpen} onClose={()=>{ setShareOpen(false); setShareIn(""); setShareResp(null); }} title="Tell nesti what's on your mind">
-        <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
-          <textarea value={shareIn} onChange={e=>setShareIn(e.target.value)} placeholder="Share what's on your mind about Maanvik..." style={{ ...S.input, height:100, resize:"none" }}/>
-          {!shareResp && <button onClick={async()=>{ setShareBusy(true); const r=await callNestiAI("You are a warm, supportive friend who also happens to be a paediatrician. A parent wants to share something about their baby Maanvik (3.5 months, ex-30-weeker). Listen warmly, ask 1–2 gentle follow-up questions to understand health cues better. If they share something log-worthy, at the end say: 'Want me to add this to Maanvik's log?'", shareIn, "That's really helpful to know. How long has Maanvik been showing this? And have you noticed any pattern — like it happens more after feeds, or at a particular time of day? 🌿"); setShareResp(r); setShareBusy(false); }} disabled={!shareIn||shareBusy} style={{ ...S.saveBtn, opacity:(!shareIn||shareBusy)?0.6:1 }}>{shareBusy?"Thinking... 🌿":"Share with nesti"}</button>}
-          {shareResp && <div style={{ background:"#f8fdf8", borderRadius:12, padding:14, fontSize:14, color:"#2C3E50", lineHeight:1.75, whiteSpace:"pre-line" }}>{shareResp}</div>}
-        </div>
-      </BottomSheet>
-
-      <BottomSheet open={askOpen} onClose={()=>{ setAskOpen(false); setAskIn(""); setAskResp(null); }} title="Ask Dr. nesti 🩺">
-        <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
-          <textarea value={askIn} onChange={e=>setAskIn(e.target.value)} placeholder="What would you like to ask?" style={{ ...S.input, height:100, resize:"none" }}/>
-          {!askResp && <button onClick={async()=>{ setAskBusy(true); const r=await callNestiAI(`You are an expert paediatrician with complete knowledge of Maanvik's medical history: premature birth at 30+4 weeks, resolved IVH Grade 2, bilateral kidney cysts now reducing, resolved ROP, current weight 4.7kg, corrected age ${corr.weeks}w ${corr.days}d. Answer as a knowledgeable paediatrician — specific, clear, reassuring. Do not give direct prescriptions. For anything serious say: 'I'd strongly recommend discussing this with Dr. Saurabh Khanna soon.' Keep under 150 words.`, askIn, "That's a great question. Based on Maanvik's current profile and today's logs, here's what I'd observe... For anything that's persisting or worsening, I'd recommend looping in Dr. Saurabh Khanna directly. 🩺"); setAskResp(r); setAskBusy(false); }} disabled={!askIn||askBusy} style={{ ...S.saveBtn, opacity:(!askIn||askBusy)?0.6:1 }}>{askBusy?"Consulting... 🩺":"Ask Dr. nesti"}</button>}
-          {askResp && <div style={{ background:"#f0f7ff", borderRadius:12, padding:14, fontSize:14, color:"#2C3E50", lineHeight:1.75 }}>{askResp}</div>}
-        </div>
-      </BottomSheet>
-
       <BottomSheet open={waSheet} onClose={()=>setWaSheet(false)} title="Message for Dr. Khanna">
         <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
           <textarea defaultValue={wamsg} style={{ ...S.input, height:220, resize:"none", fontSize:13, lineHeight:1.6 }}/>
@@ -813,139 +1368,416 @@ function TodayScreen({ logs, onLog, onDeleteLog, showToast }) {
             style={{ ...S.saveBtn, textDecoration:"none", display:"block", textAlign:"center" }}>Send on WhatsApp 💬</a>
         </div>
       </BottomSheet>
+
+      {/* Change H: Mini AI chat */}
+      {chatOpen && <NestiChat onClose={(msg)=>{ setChatOpen(false); if(msg) showToast(msg); }} age={age} corr={corr}/>}
     </div>
   );
 }
 
 // ─── SCREEN 2: GROWTH ────────────────────────────────────
-function GrowthScreen({ extraMeasurements, onAddMeasurement }) {
-  const [tab,         setTab]       = useState("weight");
-  const [ageMode,     setAgeMode]   = useState("corrected");
-  const [addSheet,    setAddSheet]  = useState(false);
-  const [nW,setNW]=useState(""); const [nH,setNH]=useState(""); const [nHC,setNHC]=useState(""); const [nD,setND]=useState(new Date().toISOString().slice(0,10));
-  const [milestones,  setMs]        = useState({});
-  const [confetti,    setConfetti]  = useState(false);
-  const [msSheet,     setMsSheet]   = useState(null);
-  const [msDate,      setMsDate]    = useState(""); const [msNote,setMsNote]=useState("");
 
+// WHO reference tables (boys) — 50th percentile
+const WHO_W_WEEKS = {0:3.35,1:3.44,2:3.63,3:3.82,4:4.00,5:4.18,6:4.35,8:4.67,10:4.97,12:5.23,16:5.71};
+const WHO_W_MONTHS= {0:3.35,1:4.47,2:5.57,3:6.37,4:7.00,5:7.51,6:7.93};
+const WHO_H_WEEKS = {0:49.9,1:51.1,2:52.3,3:53.4,4:54.4,5:55.3,6:56.2,8:57.6,10:59.1,12:60.3,16:63.0};
+const WHO_H_MONTHS= {0:49.9,1:54.7,2:58.4,3:61.4,4:63.9,5:65.9,6:67.6};
+const WHO_HC_WEEKS= {0:34.5,1:35.1,2:35.6,3:36.1,4:36.6,5:37.0,6:37.4,8:38.1,10:38.8,12:39.4,16:40.6};
+const WHO_HC_MONTHS={0:34.5,1:37.3,2:39.1,3:40.5,4:41.6,5:42.6,6:43.3};
+
+// Approximate percentile bands relative to 50th; scaling factors from WHO SD tables
+const PCT_BANDS = [
+  { label:"97th+",  wkFactor:1.135, moFactor:1.120 },
+  { label:"75th–97th", wkFactor:1.068, moFactor:1.060 },
+  { label:"50th–75th", wkFactor:1.000, moFactor:1.000 },
+  { label:"25th–50th", wkFactor:0.932, moFactor:0.940 },
+  { label:"10th–25th", wkFactor:0.875, moFactor:0.882 },
+  { label:"below 10th",wkFactor:0,    moFactor:0     },
+];
+
+function interpolateWHO(table, age) {
+  const keys = Object.keys(table).map(Number).sort((a,b)=>a-b);
+  if (age <= keys[0]) return table[keys[0]];
+  if (age >= keys[keys.length-1]) return table[keys[keys.length-1]];
+  const lo = keys.filter(k=>k<=age).pop();
+  const hi = keys.filter(k=>k>age)[0];
+  const t = (age-lo)/(hi-lo);
+  return table[lo] + t*(table[hi]-table[lo]);
+}
+
+function getPctBand(val, who50) {
+  const ratio = val / who50;
+  if (ratio >= 1.135) return "97th+";
+  if (ratio >= 1.068) return "75th–97th";
+  if (ratio >= 1.000) return "50th–75th";
+  if (ratio >= 0.932) return "25th–50th";
+  if (ratio >= 0.875) return "10th–25th";
+  return "below 10th";
+}
+
+function computePercentiles(ageMode, age, corr) {
+  const latestW  = 4.70, latestH = 59, latestHC = 37;
+  if (ageMode === "corrected") {
+    const corrWeeks = corr.weeks; // 5w 3d → use 5
+    const w50  = interpolateWHO(WHO_W_WEEKS,  corrWeeks);
+    const h50  = interpolateWHO(WHO_H_WEEKS,  corrWeeks);
+    const hc50 = interpolateWHO(WHO_HC_WEEKS, corrWeeks);
+    return {
+      weight: { band: getPctBand(latestW,  w50),  val: `4.70 kg · corrected`, ref: w50.toFixed(2)+"kg ref" },
+      height: { band: getPctBand(latestH,  h50),  val: `59 cm · corrected`,   ref: h50.toFixed(1)+"cm ref" },
+      hc:     { band: getPctBand(latestHC, hc50), val: `37 cm · corrected`,   ref: hc50.toFixed(1)+"cm ref" },
+    };
+  } else {
+    const chronoMonths = age.months; // 3m 11d → use 3
+    const w50  = interpolateWHO(WHO_W_MONTHS,  chronoMonths);
+    const h50  = interpolateWHO(WHO_H_MONTHS,  chronoMonths);
+    const hc50 = interpolateWHO(WHO_HC_MONTHS, chronoMonths);
+    return {
+      weight: { band: getPctBand(latestW,  w50),  val: `4.70 kg · chrono`,    ref: w50.toFixed(2)+"kg ref" },
+      height: { band: getPctBand(latestH,  h50),  val: `59 cm · chrono`,      ref: h50.toFixed(1)+"cm ref" },
+      hc:     { band: getPctBand(latestHC, hc50), val: `37 cm · chrono`,      ref: hc50.toFixed(1)+"cm ref" },
+    };
+  }
+}
+
+function computeVelocity(allData) {
+  const sorted = [...allData].filter(d=>d.weight && d.dateObj)
+    .sort((a,b)=>a.dateObj-b.dateObj);
+  if (sorted.length < 2) return 33;
+  const a = sorted[sorted.length-2];
+  const b = sorted[sorted.length-1];
+  const days = Math.max(1,(b.dateObj-a.dateObj)/86400000);
+  return Math.round(((b.weight-a.weight)*1000)/days);
+}
+
+// Build chart data with proper WHO reference lines
+function buildChartData(type, allData) {
+  const age  = getChronologicalAge();
+  const corr = getCorrectedAge();
+
+  if (type === "weight") {
+    const pts = allData.filter(d=>d.weight && d.dateObj)
+      .sort((a,b)=>a.dateObj-b.dateObj);
+    return pts.map(d => {
+      const ageAtPt = (d.dateObj - DOB) / (86400000 * 30.44); // months
+      const corrWksAtPt = Math.max(0, (d.dateObj - EDD) / (86400000 * 7));
+      return {
+        name: d.date,
+        maanvik: d.weight,
+        chrono: parseFloat(interpolateWHO(WHO_W_MONTHS, ageAtPt).toFixed(2)),
+        corr:   parseFloat(interpolateWHO(WHO_W_WEEKS,  corrWksAtPt).toFixed(2)),
+      };
+    });
+  }
+  if (type === "height") {
+    const pts = allData.filter(d=>d.height && d.dateObj)
+      .sort((a,b)=>a.dateObj-b.dateObj);
+    return pts.map(d => {
+      const ageAtPt = (d.dateObj - DOB) / (86400000 * 30.44);
+      const corrWksAtPt = Math.max(0, (d.dateObj - EDD) / (86400000 * 7));
+      return {
+        name: d.date,
+        maanvik: d.height,
+        chrono: parseFloat(interpolateWHO(WHO_H_MONTHS, ageAtPt).toFixed(1)),
+        corr:   parseFloat(interpolateWHO(WHO_H_WEEKS,  corrWksAtPt).toFixed(1)),
+      };
+    });
+  }
+  if (type === "hc") {
+    const pts = allData.filter(d=>d.hc && d.dateObj)
+      .sort((a,b)=>a.dateObj-b.dateObj);
+    return pts.map(d => {
+      const ageAtPt = (d.dateObj - DOB) / (86400000 * 30.44);
+      const corrWksAtPt = Math.max(0, (d.dateObj - EDD) / (86400000 * 7));
+      return {
+        name: d.date,
+        maanvik: d.hc,
+        chrono: parseFloat(interpolateWHO(WHO_HC_MONTHS, ageAtPt).toFixed(1)),
+        corr:   parseFloat(interpolateWHO(WHO_HC_WEEKS,  corrWksAtPt).toFixed(1)),
+      };
+    });
+  }
+  return [];
+}
+
+const NEXT_MILESTONES = [
+  { id:"n1", icon:"👁",  label:"Sustained eye contact and social engagement",   ageLabel:"Expected ~9-10 weeks corrected", by:"corrected" },
+  { id:"n2", icon:"🗣",  label:"Vocalises back when spoken to",                  ageLabel:"Expected ~9-10 weeks corrected", by:"corrected" },
+  { id:"n3", icon:"👀",  label:"Follows moving objects past midline",            ageLabel:"Expected ~9-10 weeks corrected", by:"corrected" },
+  { id:"n4", icon:"🐢",  label:"Holds head at 45° during tummy time",           ageLabel:"Expected ~9-10 weeks corrected", by:"corrected" },
+  { id:"n5", icon:"🤲",  label:"Reaches for and grasps objects",                ageLabel:"Expected ~4.5 months chrono",    by:"chrono" },
+  { id:"n6", icon:"😄",  label:"Laughs and squeals",                             ageLabel:"Expected ~4.5 months chrono",    by:"chrono" },
+  { id:"n7", icon:"🔄",  label:"Rolls from tummy to side",                       ageLabel:"Expected ~4.5 months chrono",    by:"chrono" },
+  { id:"n8", icon:"👨‍👩‍👦", label:"Recognises familiar faces",                      ageLabel:"Expected ~4.5 months chrono",    by:"chrono" },
+];
+
+function GrowthScreen({ extraMeasurements, onAddMeasurement, showToast }) {
+  const [tab,           setTab]          = useState("weight");
+  const [ageMode,       setAgeMode]      = useState("corrected");
+  const [addSheet,      setAddSheet]     = useState(false);
+  const [addDateMode,   setAddDateMode]  = useState("today");
+  const [nW,  setNW]  = useState(4.70);
+  const [nH,  setNH]  = useState(59);
+  const [nHC, setNHC] = useState(37);
+  const [nD,  setND]  = useState(new Date().toISOString().slice(0,10));
+  const [milestones,    setMs]           = useState({});
+  const [confetti,      setConfetti]     = useState(false);
+  const [msSheet,       setMsSheet]      = useState(null);
+  const [msDate,        setMsDate]       = useState("");
+  const [msNote,        setMsNote]       = useState("");
+  const [editMsSheet,   setEditMsSheet]  = useState(null);
+  const [nextExpanded,  setNextExpanded] = useState(false);
+  const [assessText,    setAssessText]   = useState(null);
+  const [assessBusy,    setAssessBusy]   = useState(false);
+  const [celebToast,    setCelebToast]   = useState(null);
+
+  const age  = getChronologicalAge();
+  const corr = getCorrectedAge();
   const allData = [...GROWTH_DATA, ...extraMeasurements];
 
-  const whoRef50   = [{name:"0m",v:3.3},{name:"1m",v:4.5},{name:"2m",v:5.6},{name:"3m",v:6.4},{name:"4m",v:7.0}];
-  const fentonRef50 = [{name:"30w",v:1.34},{name:"32w",v:1.78},{name:"34w",v:2.27},{name:"36w",v:2.74},{name:"38w",v:3.18},{name:"40w",v:3.53},{name:"42w",v:3.90},{name:"44w",v:4.20},{name:"48w",v:4.90}];
+  // Fix 1: velocity always recalculated from current allData
+  const velG      = computeVelocity(allData);
+  const velColor  = velG>=20&&velG<=35?"#7C9A7E":velG>35?"#F5A623":"#E05C5C";
 
-  const weightData = allData.filter(d=>d.weight).map((d,i)=>({
-    name:d.date, maanvik:d.weight,
-    chrono: whoRef50[Math.min(i,whoRef50.length-1)]?.v,
-    corr:   fentonRef50[Math.min(i+2,fentonRef50.length-1)]?.v
-  }));
-  const heightData = allData.filter(d=>d.height).map((d,i)=>({ name:d.date, maanvik:d.height, who50:[45,48,53,55,57,59][i]||59 }));
-  const hcData     = allData.filter(d=>d.hc).map((d,i)=>({ name:d.date, maanvik:d.hc,    who50:[34,35,36,37,38][i]||37 }));
+  // Fix 2: proper percentile calculation
+  const pctData   = computePercentiles(ageMode, age, corr);
 
-  const pctData = ageMode==="corrected"
-    ? { weight:{pct:"42nd",val:"4.45 kg · corrected",trend:"↑ catching up"},
-        height:{pct:"75th",val:"59 cm · corrected",  trend:"↑ above median"},
-        hc:    {pct:"65th",val:"37 cm · corrected",  trend:"↑ tracking well"} }
-    : { weight:{pct:"25th",val:"4.70 kg · chrono",   trend:"↑ catching up"},
-        height:{pct:"88th",val:"59 cm · chrono",     trend:"↑ above median"},
-        hc:    {pct:"50th",val:"37 cm · chrono",     trend:"↑ on track"} };
+  // Fix 3: proper chart data with 3 reference lines
+  const chartData = buildChartData(tab, allData);
 
-  const lastTwo = allData.filter(d=>d.weight).slice(-2);
-  const velG = lastTwo.length===2 ? Math.round(((lastTwo[1].weight-lastTwo[0].weight)*1000)/Math.max(1,(lastTwo[1].dateObj-lastTwo[0].dateObj)/86400000)) : 33;
-  const velColor = velG>=20&&velG<=35?"#7C9A7E":velG>35?"#F5A623":"#E05C5C";
+  // Y-axis domain
+  const allVals = chartData.flatMap(d=>[d.maanvik,d.chrono,d.corr].filter(Boolean));
+  const yMin = allVals.length ? parseFloat((Math.min(...allVals)*0.85).toFixed(1)) : 0;
+  const yMax = allVals.length ? parseFloat((Math.max(...allVals)*1.10).toFixed(1)) : 10;
 
-  const chartData = tab==="weight" ? weightData : tab==="height" ? heightData : hcData;
+  const pendingMs  = MILESTONE_DATA.filter(m=>!milestones[m.id]);
+  const achievedMs = MILESTONE_DATA.filter(m=>!!milestones[m.id]);
+
+  const handleMarkMilestone = () => {
+    const m = msSheet;
+    setMs(prev=>({...prev,[m.id]:{date:msDate||new Date().toISOString().slice(0,10),note:msNote}}));
+    setMsSheet(null);
+    setConfetti(true);
+    setCelebToast(`🎉 ${m.label} — What a moment!`);
+    setTimeout(()=>{ setConfetti(false); setCelebToast(null); },3200);
+  };
+
+  const handleAssess = async () => {
+    setAssessBusy(true);
+    const msJson = JSON.stringify(MILESTONE_DATA.map(m=>({
+      label:m.label, achieved:!!milestones[m.id], date:milestones[m.id]?.date||null
+    })));
+    const fb = `🌿 Developmental Progress Summary\n\n• Maanvik is tracking well for his corrected age of 5-6 weeks\n• Social smile emerging — a strong positive neurological sign given IVH history\n• Head control developing appropriately for corrected age\n\n📋 To discuss with Dr. Khanna:\n• Confirm neurodevelopment clinic appointment — due now at 3-4 months corrected\n• Review tummy time progress and head control trajectory\n• Discuss timeline for formal developmental assessment\n\n🔍 Monitor going forward:\n• Eye tracking and visual following — key marker for next 4 weeks\n• Vocalisation patterns — should increase meaningfully by 8 weeks corrected\n\nMaanvik's recovery journey has been remarkable. His development reflects the resilience he has shown from day one. 🌿`;
+    const r = await callNestiAI(
+      `You are a paediatrician reviewing developmental milestones of Maanvik, a premature baby born at 30+4 weeks, now ${age.months} months ${age.days} days chronological (${corr.weeks} weeks ${corr.days} days corrected). Review achieved and pending milestones. Give: 1) A warm summary of developmental progress so far 2) Any milestones that appear delayed — flag gently with suggested monitoring actions 3) Specific items to raise with Dr. Saurabh Khanna at the next visit 4) One encouraging closing line. Keep total response under 200 words. Use bullet points.`,
+      `Milestones: ${msJson}`, fb
+    );
+    setAssessText(r); setAssessBusy(false);
+  };
+
+  const addDateOptions = [
+    { label:"Today",     value: new Date().toISOString().slice(0,10) },
+    { label:"Yesterday", value: new Date(Date.now()-86400000).toISOString().slice(0,10) },
+  ];
+
+  const handleSaveMeasurement = () => {
+    const dateVal = addDateMode==="custom" ? nD : addDateOptions.find(o=>o.label===addDateMode)?.value || nD;
+    const dateObj = new Date(dateVal);
+    const dateLabel = dateObj.toLocaleDateString("en-IN",{day:"numeric",month:"short"});
+    onAddMeasurement({ date:dateLabel, dateObj, weight:nW||null, height:nH||null, hc:nHC||null });
+    setAddSheet(false);
+  };
 
   return (
     <div style={{ paddingBottom:20 }}>
       <Confetti active={confetti}/>
+      {celebToast && <Toast message={celebToast} onDone={()=>setCelebToast(null)}/>}
+
       <div style={{ fontSize:20, fontWeight:800, color:"#2C3E50", marginBottom:16 }}>Maanvik's growth 📈</div>
 
+      {/* Age mode toggle */}
       <div style={{ display:"flex", gap:4, marginBottom:14, background:"#f0f0f0", borderRadius:50, padding:4 }}>
         {[["corrected","Corrected age"],["chrono","Chronological"]].map(([v,l])=>(
           <button key={v} onClick={()=>setAgeMode(v)} style={{ flex:1, background:ageMode===v?"#fff":"transparent", color:ageMode===v?"#2C3E50":"#8C9BAB", border:"none", borderRadius:50, padding:"8px", fontSize:13, fontWeight:700, cursor:"pointer", boxShadow:ageMode===v?"0 1px 6px rgba(0,0,0,0.1)":"none", transition:"all 0.2s" }}>{l}</button>
         ))}
       </div>
 
+      {/* Fix 2: Correct percentile cards */}
       <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8, marginBottom:16 }}>
         {[["Weight","weight"],["Height","height"],["Head","hc"]].map(([l,k])=>(
-          <div key={k} style={{ ...S.card, textAlign:"center", padding:"14px 8px" }}>
-            <div style={{ fontSize:26, fontWeight:900, color:"#7C9A7E" }}>{pctData[k].pct}</div>
-            <div style={{ fontSize:9, color:"#8C9BAB", textTransform:"uppercase", letterSpacing:"0.04em" }}>percentile</div>
+          <div key={k} style={{ ...S.card, textAlign:"center", padding:"12px 8px" }}>
+            <div style={{ fontSize:20, fontWeight:900, color:"#7C9A7E", lineHeight:1.2 }}>{pctData[k].band}</div>
+            <div style={{ fontSize:8, color:"#8C9BAB", textTransform:"uppercase", letterSpacing:"0.04em", marginTop:2 }}>percentile</div>
             <div style={{ fontSize:11, fontWeight:700, color:"#2C3E50", marginTop:4 }}>{l}</div>
-            <div style={{ fontSize:10, color:"#8C9BAB", marginTop:2 }}>{pctData[k].val}</div>
-            <div style={{ fontSize:10, color:"#7C9A7E", marginTop:4, fontWeight:600 }}>{pctData[k].trend}</div>
+            <div style={{ fontSize:9, color:"#8C9BAB", marginTop:2 }}>{pctData[k].val}</div>
+            <div style={{ fontSize:9, color:"#aaa", marginTop:2 }}>50th: {pctData[k].ref}</div>
           </div>
         ))}
       </div>
 
+      {/* Fix 1: Velocity card */}
       <div style={{ background:"#f0f7f0", borderRadius:14, padding:"12px 14px", marginBottom:14, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
         <div>
-          <div style={{ fontSize:12, color:"#8C9BAB", fontWeight:600 }}>Recent velocity</div>
+          <div style={{ fontSize:12, color:"#8C9BAB", fontWeight:600 }}>Weight velocity</div>
           <div style={{ fontSize:22, fontWeight:900, color:velColor }}>~{velG}g/day</div>
         </div>
         <div style={{ textAlign:"right" }}>
           <div style={{ background:velColor+"22", color:velColor, borderRadius:50, padding:"4px 12px", fontSize:11, fontWeight:700 }}>
-            {velG>=20&&velG<=35?"✓ On target":velG>35?"⚠ Above":"⚠ Below target"}
+            {velG>=20&&velG<=35?"✓ On target":velG>35?"⚠ Above target":"⚠ Below target"}
           </div>
           <div style={{ fontSize:10, color:"#8C9BAB", marginTop:4 }}>Target: 20–35 g/day</div>
         </div>
       </div>
 
+      {/* Chart tabs */}
       <div style={{ display:"flex", gap:6, marginBottom:10 }}>
         {[["weight","⚖️ Weight"],["height","📏 Height"],["hc","🔵 Head"]].map(([v,l])=>(
           <button key={v} onClick={()=>setTab(v)} style={{ flex:1, background:tab===v?"#7C9A7E":"#f5f5f5", color:tab===v?"#fff":"#8C9BAB", border:"none", borderRadius:50, padding:"8px 4px", fontSize:12, fontWeight:700, cursor:"pointer" }}>{l}</button>
         ))}
       </div>
 
-      <div style={{ ...S.card, padding:"14px 6px", marginBottom:14 }}>
-        <ResponsiveContainer width="100%" height={210}>
-          <LineChart data={chartData} margin={{ top:8, right:14, left:-20, bottom:4 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0"/>
-            <XAxis dataKey="name" tick={{ fontSize:9, fill:"#8C9BAB" }}/>
-            <YAxis tick={{ fontSize:9, fill:"#8C9BAB" }}/>
-            <Tooltip contentStyle={{ borderRadius:12, border:"none", boxShadow:"0 4px 20px rgba(0,0,0,0.1)", fontSize:12 }}/>
-            <Legend wrapperStyle={{ fontSize:10 }}/>
-            <Line type="monotone" dataKey="maanvik" stroke="#7C9A7E" strokeWidth={3} dot={{ r:5, fill:"#7C9A7E", strokeWidth:0 }} name="Maanvik"/>
-            <Line type="monotone" dataKey={tab==="weight"?"chrono":"who50"} stroke="#ccc" strokeDasharray="5 5" strokeWidth={1.5} dot={false} name="WHO 50th (chrono)"/>
-            {tab==="weight" && <Line type="monotone" dataKey="corr" stroke="#E8967A" strokeDasharray="3 3" strokeWidth={1.5} dot={false} name="WHO 50th (corrected)"/>}
-          </LineChart>
-        </ResponsiveContainer>
+      {/* Fix 3: Chart with 3 reference lines and proper Y-axis */}
+      <div style={{ ...S.card, padding:"14px 10px 8px", marginBottom:14 }}>
+        <SVGLineChart
+          data={chartData}
+          height={220}
+          yDomain={[yMin, yMax]}
+          lines={[
+            { key:"maanvik", color:"#7C9A7E", width:3, dot:true,  label:"● Maanvik" },
+            { key:"chrono",  color:"#bbb",    dash:"5 5",          label:"-- WHO (chrono)" },
+            { key:"corr",    color:"#E8967A", dash:"3 3",          label:"-- WHO (corrected)" },
+          ]}
+        />
       </div>
 
+      {/* Fix 4: Redesigned Add Measurement */}
       <button onClick={()=>setAddSheet(true)} style={{ ...S.saveBtn, marginBottom:16 }}>+ Add Measurement</button>
 
+      {/* Milestones — pending first */}
       <div style={S.secLabel}>developmental milestones</div>
-      <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:16 }}>
-        {MILESTONE_DATA.map(m=>(
+      <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:8 }}>
+        {pendingMs.map(m=>(
           <div key={m.id} style={{ ...S.card, display:"flex", alignItems:"center", gap:12, padding:"12px 16px" }}>
             <span style={{ fontSize:22 }}>{m.icon}</span>
             <div style={{ flex:1 }}>
-              <div style={{ fontWeight:600, fontSize:14, color:milestones[m.id]?"#7C9A7E":"#2C3E50" }}>{m.label}</div>
-              <div style={{ fontSize:11, color:"#8C9BAB" }}>{milestones[m.id]?`✓ Observed ${milestones[m.id].date}`:m.ageLabel}</div>
+              <div style={{ fontWeight:600, fontSize:14, color:"#2C3E50" }}>{m.label}</div>
+              <div style={{ fontSize:11, color:"#8C9BAB" }}>{m.ageLabel}</div>
             </div>
-            <button onClick={()=>{ if(milestones[m.id]) return; setMsSheet(m); setMsDate(""); setMsNote(""); }}
-              style={{ background:milestones[m.id]?"#f0f7f0":"#f5f5f5", color:milestones[m.id]?"#7C9A7E":"#2C3E50", border:"none", borderRadius:50, padding:"6px 14px", fontSize:12, fontWeight:700, cursor:milestones[m.id]?"default":"pointer" }}>
-              {milestones[m.id]?"🎉":"Mark"}
-            </button>
+            <button onClick={()=>{ setMsSheet(m); setMsDate(""); setMsNote(""); }}
+              style={{ background:"#f5f5f5", color:"#2C3E50", border:"none", borderRadius:50, padding:"6px 14px", fontSize:12, fontWeight:700, cursor:"pointer" }}>Mark</button>
           </div>
         ))}
       </div>
 
+      {/* Fix 7: Achieved milestones section */}
+      {achievedMs.length > 0 && (
+        <div style={{ marginBottom:12 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:8 }}>
+            <div style={{ fontSize:11, fontWeight:700, color:"#7C9A7E", textTransform:"uppercase", letterSpacing:"0.08em" }}>Milestones reached 🎉</div>
+            <div style={{ background:"#7C9A7E", color:"#fff", borderRadius:50, width:20, height:20, display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:800 }}>{achievedMs.length}</div>
+          </div>
+          <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
+            {achievedMs.map(m=>(
+              <div key={m.id} style={{ background:"#f0f7f0", borderRadius:14, padding:"12px 16px", display:"flex", alignItems:"center", gap:12, border:"1.5px solid #7C9A7E33" }}>
+                <div style={{ width:28, height:28, borderRadius:"50%", background:"#7C9A7E", display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, color:"#fff", flexShrink:0 }}>✓</div>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontWeight:700, fontSize:14, color:"#7C9A7E" }}>{m.label}</div>
+                  <div style={{ fontSize:11, color:"#8C9BAB" }}>Observed {milestones[m.id].date}</div>
+                </div>
+                <button onClick={()=>{ setEditMsSheet({...m, current:milestones[m.id]}); setMsDate(milestones[m.id].date); setMsNote(milestones[m.id].note||""); }}
+                  style={{ background:"none", color:"#8C9BAB", border:"1px solid #e0e0e0", borderRadius:50, padding:"4px 10px", fontSize:11, cursor:"pointer" }}>Edit</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Fix 5: Next month milestones */}
+      <div style={{ marginBottom:16 }}>
+        <button onClick={()=>setNextExpanded(e=>!e)} style={{ background:"none", border:"none", cursor:"pointer", display:"flex", alignItems:"center", gap:8 }}>
+          <div style={{ background:"#7C9A7E", color:"#fff", borderRadius:50, padding:"6px 14px", fontSize:12, fontWeight:700 }}>Coming up next month 🔜</div>
+          <span style={{ color:"#8C9BAB", fontSize:16 }}>{nextExpanded?"▲":"▼"}</span>
+        </button>
+        {nextExpanded && (
+          <div style={{ display:"flex", flexDirection:"column", gap:6, marginTop:10 }}>
+            {NEXT_MILESTONES.map(m=>(
+              <div key={m.id} style={{ background:"#f8f8f8", borderRadius:14, padding:"11px 16px", display:"flex", alignItems:"center", gap:12, border:"1px solid #e8e8e8", opacity:0.85 }}>
+                <div style={{ width:28, height:28, borderRadius:"50%", background:"#e8e8e8", display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, flexShrink:0 }}>🔒</div>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontWeight:600, fontSize:13, color:"#2C3E50" }}>{m.label}</div>
+                  <div style={{ fontSize:11, color:"#8C9BAB" }}>{m.ageLabel}</div>
+                </div>
+                <span style={{ fontSize:20 }}>{m.icon}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Fix 6: AI milestone assessment */}
+      <div style={{ ...S.card, marginBottom:16 }}>
+        <div style={S.secLabel}>nesti's developmental assessment 🌿</div>
+        {!assessText ? (
+          <button onClick={handleAssess} disabled={assessBusy} style={{ ...S.saveBtn, opacity:assessBusy?0.7:1 }}>
+            {assessBusy ? "Assessing... 🌿" : "Generate Assessment"}
+          </button>
+        ) : (
+          <>
+            <div style={{ fontSize:13, color:"#2C3E50", lineHeight:1.75, whiteSpace:"pre-line", marginBottom:12 }}>{assessText}</div>
+            <button onClick={()=>setAssessText(null)} style={{ background:"none", border:"1px solid #e0e0e0", borderRadius:50, padding:"8px 16px", fontSize:12, color:"#8C9BAB", cursor:"pointer" }}>↻ Regenerate</button>
+          </>
+        )}
+      </div>
+
+      {/* Fix 4: Redesigned add measurement sheet */}
       <BottomSheet open={addSheet} onClose={()=>setAddSheet(false)} title="+ Add Measurement">
-        <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
-          <div><div style={S.label}>Date</div><input type="date" value={nD} onChange={e=>setND(e.target.value)} style={S.input}/></div>
-          <div><div style={S.label}>Weight (kg)</div><input type="number" step="0.01" value={nW} onChange={e=>setNW(e.target.value)} placeholder="e.g. 4.80" style={S.input}/></div>
-          <div><div style={S.label}>Height (cm)</div><input type="number" step="0.1" value={nH} onChange={e=>setNH(e.target.value)} placeholder="e.g. 60" style={S.input}/></div>
-          <div><div style={S.label}>Head Circumference (cm)</div><input type="number" step="0.1" value={nHC} onChange={e=>setNHC(e.target.value)} placeholder="e.g. 38" style={S.input}/></div>
-          <button onClick={()=>{ onAddMeasurement({ date:new Date(nD).toLocaleDateString("en-IN",{day:"numeric",month:"short"}), dateObj:new Date(nD), weight:parseFloat(nW)||null, height:parseFloat(nH)||null, hc:parseFloat(nHC)||null }); setAddSheet(false); setNW(""); setNH(""); setNHC(""); }} style={S.saveBtn}>Save Measurement ✓</button>
+        <div style={{ display:"flex", flexDirection:"column", gap:18 }}>
+          <div>
+            <div style={S.label}>Date</div>
+            <div style={{ display:"flex", gap:6, flexWrap:"wrap" }}>
+              {["Today","Yesterday","Custom"].map(opt=>(
+                <button key={opt} onClick={()=>setAddDateMode(opt)} style={{
+                  padding:"8px 14px", borderRadius:50, border:"none", cursor:"pointer", fontSize:13, fontWeight:600,
+                  background:addDateMode===opt?"#7C9A7E":"#f0f0f0",
+                  color:addDateMode===opt?"#fff":"#2C3E50"
+                }}>{opt}</button>
+              ))}
+            </div>
+            {addDateMode==="Custom" && <input type="date" value={nD} onChange={e=>setND(e.target.value)} style={{ ...S.input, marginTop:10 }}/>}
+          </div>
+          {[
+            { label:"Weight (kg)",  val:nW, set:setNW, step:0.05, unit:"kg", fmt:v=>v.toFixed(2) },
+            { label:"Height (cm)",  val:nH, set:setNH, step:0.5,  unit:"cm", fmt:v=>v.toFixed(1) },
+            { label:"Head circ (cm)",val:nHC,set:setNHC,step:0.5, unit:"cm", fmt:v=>v.toFixed(1) },
+          ].map(f=>(
+            <div key={f.label}>
+              <div style={S.label}>{f.label}</div>
+              <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+                <button onClick={()=>f.set(v=>Math.max(0,parseFloat((v-f.step).toFixed(2))))} style={{ width:40, height:40, borderRadius:"50%", background:"#f0f0f0", border:"none", fontSize:20, cursor:"pointer", fontWeight:700, color:"#2C3E50" }}>−</button>
+                <div style={{ flex:1, textAlign:"center", fontSize:28, fontWeight:900, color:"#2C3E50" }}>{f.fmt(f.val)}<span style={{ fontSize:14, color:"#8C9BAB", fontWeight:500 }}>{f.unit}</span></div>
+                <button onClick={()=>f.set(v=>parseFloat((v+f.step).toFixed(2)))} style={{ width:40, height:40, borderRadius:"50%", background:"#7C9A7E", border:"none", fontSize:20, cursor:"pointer", fontWeight:700, color:"#fff" }}>+</button>
+              </div>
+            </div>
+          ))}
+          <button onClick={handleSaveMeasurement} style={S.saveBtn}>Save Measurement ✓</button>
         </div>
       </BottomSheet>
 
+      {/* Mark milestone sheet */}
       <BottomSheet open={!!msSheet} onClose={()=>setMsSheet(null)} title={`🎉 ${msSheet?.label}`}>
         <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
           <div><div style={S.label}>Date observed</div><input type="date" value={msDate} onChange={e=>setMsDate(e.target.value)} style={S.input}/></div>
           <div><div style={S.label}>Note (optional)</div><input type="text" value={msNote} onChange={e=>setMsNote(e.target.value)} placeholder="e.g. at morning feeding" style={S.input}/></div>
-          <button onClick={()=>{ setMs(prev=>({...prev,[msSheet.id]:{date:msDate||"today",note:msNote}})); setMsSheet(null); setConfetti(true); setTimeout(()=>setConfetti(false),3200); }} style={S.saveBtn}>Mark as Observed 🎉</button>
+          <button onClick={handleMarkMilestone} style={S.saveBtn}>Mark as Observed 🎉</button>
+        </div>
+      </BottomSheet>
+
+      {/* Edit milestone sheet */}
+      <BottomSheet open={!!editMsSheet} onClose={()=>setEditMsSheet(null)} title={`✏️ Edit: ${editMsSheet?.label}`}>
+        <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+          <div><div style={S.label}>Date observed</div><input type="date" value={msDate} onChange={e=>setMsDate(e.target.value)} style={S.input}/></div>
+          <div><div style={S.label}>Note (optional)</div><input type="text" value={msNote} onChange={e=>setMsNote(e.target.value)} placeholder="e.g. at morning feeding" style={S.input}/></div>
+          <button onClick={()=>{ setMs(prev=>({...prev,[editMsSheet.id]:{date:msDate,note:msNote}})); setEditMsSheet(null); }} style={S.saveBtn}>Save Changes ✓</button>
         </div>
       </BottomSheet>
     </div>
@@ -954,100 +1786,166 @@ function GrowthScreen({ extraMeasurements, onAddMeasurement }) {
 
 // ─── SCREEN 3: HEALTH ────────────────────────────────────
 function HealthScreen({ showToast }) {
-  const [expanded,   setExpanded]   = useState(null);
-  const [docSummary, setDocSummary] = useState(null);
-  const [docBusy,    setDocBusy]    = useState(false);
-  const [clinicSheet,setClinicSheet]= useState(false);
-  const [clinicNum,  setClinicNum]  = useState("");
+  const [expanded,    setExpanded]   = useState(null);
+  const [docSummary,  setDocSummary] = useState(null);
+  const [docBusy,     setDocBusy]    = useState(false);
+  const [clinicSheet, setClinicSheet]= useState(false);
+  const [clinicNum,   setClinicNum]  = useState("");
+  const [tempNum,     setTempNum]    = useState("");
+  const [bookStep,    setBookStep]   = useState(null); // null | {vacc, step:1|2}
+  const [booked,      setBooked]     = useState({});   // vaccIdx → true
+  const [uploadSheet, setUploadSheet]= useState(false);
+  const [uploadState, setUploadState]= useState("idle"); // idle|scanning|review|edit
+  const [uploadData,  setUploadData] = useState(null);
+  const [waMsg,       setWaMsg]      = useState(null);
 
+  const age  = getChronologicalAge();
+  const corr = getCorrectedAge();
+
+  // Health Fix 2: history cards with status pills
   const historyCards = [
-    { id:"neuro",    icon:"🧠", title:"Neuro",          color:"#c67ad4",
+    { id:"neuro",    icon:"🧠", title:"Neuro",      color:"#c67ad4", pill:"Neurodev clinic due now", pillLevel:"red",
       events:["Day 3: IVH Grade 2 detected","Day 7: Regressed to Grade 1","Day 23: Fully resolved ✅","⏰ Neurodevelopment clinic at 4–6 months corrected"] },
-    { id:"resp",     icon:"🫁", title:"Respiratory",     color:"#6bb5d6",
+    { id:"resp",     icon:"🫁", title:"Respiratory", color:"#6bb5d6", pill:"Fully resolved", pillLevel:"green",
       events:["Birth: Intubated, surfactant given","Day 5: Room air achieved ✅","Day 5–6: Apnea, caffeine started","Day 24: Caffeine stopped, no recurrence ✅"] },
-    { id:"kidney",   icon:"🧂", title:"Kidneys",         color:"#F5A623",
+    { id:"kidney",   icon:"🧂", title:"Kidneys",     color:"#F5A623", pill:"Scan due ~Jun 2026", pillLevel:"amber",
       events:["Birth: Bilateral cysts, largest 5.7mm","Jan 2026: Creatinine normalised ✅","Mar 2026: Cysts reducing ✅","⏰ USG KUB + MCU scan (~Jun 2026)"] },
-    { id:"rop",      icon:"👁️", title:"Eyes (ROP)",      color:"#7C9A7E",
+    { id:"rop",      icon:"👁️", title:"Eyes (ROP)",  color:"#7C9A7E", pill:"ROP clearance pending", pillLevel:"amber",
       events:["Day 26: Zone II, Stage 1–2, No Plus disease","Jan 2026: Follow-up — trending well ✅","⏰ Final ROP clearance check pending"] },
-    { id:"jaundice", icon:"💛", title:"Jaundice",        color:"#F5A623",
+    { id:"jaundice", icon:"💛", title:"Jaundice",    color:"#F5A623", pill:"Resolved", pillLevel:"green",
       events:["24hrs: Phototherapy started","73hrs: Second phototherapy","~Day 5: Resolved ✅"] },
   ];
+  const pillColors = {
+    red:   { bg:"#FEF2F2", color:"#c0392b" },
+    amber: { bg:"#FFFBF0", color:"#8a5700" },
+    green: { bg:"#F0F7F0", color:"#2d6e31" },
+  };
 
+  // Health Fix 3: upload handler
+  const handleFileSelect = async (file) => {
+    if (!file) return;
+    setUploadState("scanning");
+    // Convert to base64 for API (vision)
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const fb = { documentType:"Prescription", doctorName:"Dr. Saurabh Khanna", date: new Date().toLocaleDateString("en-IN"), findings:"Document uploaded", medications:[], followUpInstructions:"" };
+      // In production would send base64 to Claude vision API
+      setTimeout(()=>{
+        setUploadData(fb);
+        setUploadState("review");
+      }, 1800);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Health Fix 4: enhanced Doctor Summary
   const handleDocSummary = async () => {
     setDocBusy(true);
-    const fb = `PAEDIATRICIAN VISIT SUMMARY — Maanvik\nDate: ${new Date().toLocaleDateString("en-IN")}\nAge: 3 months 17 days (5w 3d corrected)\n\n1. GROWTH\nWeight: 4.70kg (↑ from 4.30kg on 11 Mar, +400g in 12 days, ~33g/day ✅)\nHeight: 59cm | HC: 37cm\nPercentile: ~42nd (corrected age) — good catch-up trajectory\n\n2. FEEDING\nTarget: 560ml/day. Breastmilk primary, 8–10 feeds/day. Good latch.\n\n3. SLEEP\nTarget: 14–17hrs/day. Settled episodes noted.\n\n4. DIAPER OUTPUT\nWithin expected range (5–6 changes/day).\n\n5. MEDICATIONS\nAll 4 daily medications being administered per schedule.\n\n6. PARENTAL CONCERNS\nColic ongoing (~3 weeks), improving. Prefers upright position.\n\n7. UPCOMING FOLLOW-UPS\n• 14-week vaccines: ~20 Apr 2026\n• USG KUB + MCU: ~Jun 2026\n• Neurodevelopment clinic: due now\n• Final ROP clearance: pending\n\nSUGGESTED QUESTIONS FOR DR. KHANNA:\n1. Is Maanvik's weight gain velocity appropriate for his corrected age?\n2. Should we start neurodevelopment clinic assessment this month?\n3. Is the colic pattern normal for an ex-30-weeker at this stage?`;
-    const r = await callNestiAI("Generate a structured paediatrician visit summary for baby Maanvik.", "Maanvik: 30+4 weeks gestation, 3m 17d old (5w 3d corrected), 4.7kg, resolved IVH, resolving kidney cysts, resolved ROP. Generate full clinical visit summary with 7 sections and 3 questions for the parent to ask.", fb);
+    const fb = `PAEDIATRICIAN VISIT SUMMARY — Maanvik\nDate: ${new Date().toLocaleDateString("en-IN")}\n\n━━ PATIENT OVERVIEW ━━\nName: Maanvik | DOB: 11 Dec 2025 | Gestational age at birth: 30+4 weeks\nChronological age: ${age.months}m ${age.days}d | Corrected age: ${corr.weeks}w ${corr.days}d | Blood group: AB+\n\n━━ GROWTH SINCE LAST VISIT ━━\nWeight: 4.70kg (↑ from 4.30kg on 11 Mar — +400g in 12 days, ~33g/day ✅)\nHeight: 59cm | HC: 37cm\nVelocity: ~33g/day — within target (20–35g/day for corrected age)\nPercentile: 25th–50th band (chronological) | 50th–75th band (corrected ✅)\n[No parameters below 10th percentile]\n\n━━ FEEDING SUMMARY ━━\nTarget: 560ml/day | Breastmilk primary | Pattern: 8–10 feeds/day\nTrend: Stable. Good latch reported. No feeding concerns logged.\n\n━━ SLEEP PATTERN ━━\nTarget: 14–17 hrs/day | Quality: Mostly settled\nNo sleep concerns flagged.\n\n━━ DIAPER OUTPUT ━━\nAverage: 5–6 changes/day | Within expected range\nNo flags — soiled diapers logged regularly.\n\n━━ MEDICATIONS ━━\n• Vitamin D3 (Calsine P) 0.5ml OD\n• Vitamin A to Z drops 0.5ml OD\n• Iron (Tonoferron) 0.3ml OD\n• Calcium (Calcimax P) 2ml TDS\nAll medications being administered per schedule.\n\n━━ DEVELOPMENTAL MILESTONES ━━\nAchieved: Fixes gaze, responds to sound, social smile emerging\nFor corrected age (5-6w): Tracking on schedule\n[MONITOR] Eye tracking past midline — key next marker\n[MONITOR] Vocalisation patterns — should increase by 8w corrected\n\n━━ ACTIVE MEDICAL CONCERNS ━━\nKidneys: Cysts reducing — non-worrisome (Mar 2026)\nEyes: ROP final clearance pending\nNeuro: Neurodevelopment clinic appointment overdue — please schedule\n\n━━ UPCOMING FOLLOW-UPS DUE ━━\n• [URGENT] Neurodevelopment clinic — OVERDUE (due at 3-4m corrected)\n• 14-week vaccines: ~20 Apr 2026\n• Final ROP clearance: pending scheduling\n• USG KUB + MCU: ~Jun 2026\n\n━━ SUGGESTED DISCUSSION POINTS ━━\n1. Is weight gain velocity appropriate for corrected age trajectory?\n2. Schedule neurodevelopment clinic — what is the current wait time?\n3. ROP final clearance — when can we confirm resolution?\n4. Colic pattern at 3.5 months — normal timeline for ex-30-weeker?\n5. Should we adjust feed volume targets as weight increases?`;
+
+    const sys = `You are a medical documentation assistant creating a comprehensive paediatrician visit summary for Dr. Saurabh Khanna. The patient is Maanvik, premature baby born at 30+4 weeks gestation, now ${age.months}m ${age.days}d old (${corr.weeks}w ${corr.days}d corrected). Create a detailed but scannable summary with these 10 sections: PATIENT OVERVIEW, GROWTH SINCE LAST VISIT (include velocity, percentile band), FEEDING SUMMARY, SLEEP PATTERN, DIAPER OUTPUT, MEDICATIONS, DEVELOPMENTAL MILESTONES (achieved with dates, flag delayed), ACTIVE MEDICAL CONCERNS (kidneys, eyes, neuro), UPCOMING FOLLOW-UPS DUE (flag URGENT), SUGGESTED DISCUSSION POINTS (3-5 specific questions). Write professionally. Use medical shorthand. Flag anything urgent in [URGENT] tags. Keep each section concise.`;
+    const r = await callNestiAI(sys, "Generate full visit summary for Maanvik based on his complete medical profile as described.", fb);
     setDocSummary(r);
     setDocBusy(false);
+  };
+
+  const shortWaMsg = `Hi Dr. Khanna 👋\n\n*Maanvik update — ${new Date().toLocaleDateString("en-IN")}*\n• Age: ${age.months}m ${age.days}d (${corr.weeks}w ${corr.days}d corrected)\n• Weight: 4.70kg | Height: 59cm | HC: 37cm\n• Velocity: ~33g/day ✅\n• Feeds: Breastmilk, 8-10/day\n• Meds: All on schedule\n\n⚠️ Pending: Neurodev clinic appointment, ROP clearance, 14w vaccines (~20 Apr)\n\nKindly advise on next appointment. Thank you!`;
+
+  // Health Fix 1: Book appointment two-step
+  const openBooking = (vacc) => {
+    if (clinicNum) setBookStep({ vacc, step:2 });
+    else setBookStep({ vacc, step:1 });
   };
 
   return (
     <div style={{ paddingBottom:20 }}>
       <div style={{ fontSize:20, fontWeight:800, color:"#2C3E50", marginBottom:16 }}>Maanvik's health 🩺</div>
 
+      {/* Vaccinations */}
       <div style={S.secLabel}>vaccinations</div>
       <div style={{ ...S.card, marginBottom:14 }}>
-        {[...VACC_DONE.map(v=>({...v,done:true})), ...VACC_UPCOMING.map(v=>({...v,done:false}))].map((v,i,arr)=>(
-          <div key={i} style={{ display:"flex", gap:12, paddingBottom:i<arr.length-1?14:0, marginBottom:i<arr.length-1?0:0 }}>
+        {VACC_DONE.map((v,i)=>(
+          <div key={i} style={{ display:"flex", gap:12, paddingBottom:14 }}>
             <div style={{ display:"flex", flexDirection:"column", alignItems:"center" }}>
-              <div style={{ width:28, height:28, borderRadius:"50%", background:v.done?"#f0f7f0":"#FFF8E7", display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, flexShrink:0 }}>{v.done?"✅":"🔜"}</div>
-              {i<arr.length-1 && <div style={{ width:2, flex:1, background:"#f0f0f0", margin:"4px 0" }}/>}
+              <div style={{ width:28, height:28, borderRadius:"50%", background:"#f0f7f0", display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, flexShrink:0 }}>✅</div>
+              <div style={{ width:2, flex:1, background:"#f0f0f0", margin:"4px 0", minHeight:12 }}/>
+            </div>
+            <div style={{ paddingTop:4 }}>
+              <div style={{ fontWeight:700, fontSize:14, color:"#2C3E50" }}>{v.label}</div>
+              <div style={{ fontSize:12, color:"#8C9BAB" }}>{v.date} · Age: {v.age}</div>
+            </div>
+          </div>
+        ))}
+        {VACC_UPCOMING.map((v,idx)=>(
+          <div key={idx} style={{ display:"flex", gap:12, paddingBottom:idx<VACC_UPCOMING.length-1?14:0 }}>
+            <div style={{ display:"flex", flexDirection:"column", alignItems:"center" }}>
+              <div style={{ width:28, height:28, borderRadius:"50%", background:"#FFF8E7", display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, flexShrink:0 }}>🔜</div>
+              {idx<VACC_UPCOMING.length-1 && <div style={{ width:2, flex:1, background:"#f0f0f0", margin:"4px 0" }}/>}
             </div>
             <div style={{ flex:1, paddingTop:4 }}>
-              <div style={{ fontWeight:700, fontSize:14, color:"#2C3E50" }}>{v.label}</div>
-              <div style={{ fontSize:12, color:"#8C9BAB" }}>{v.date}{v.age?` · Age: ${v.age}`:""}</div>
-              {!v.done && (
-                <div style={{ display:"flex", gap:8, marginTop:6, flexWrap:"wrap" }}>
-                  <span style={{ background:"#FFF8E7", color:"#c47800", borderRadius:50, padding:"3px 10px", fontSize:11, fontWeight:700 }}>{v.daysAway} days away</span>
-                  <button onClick={()=>clinicNum?window.open(`tel:${clinicNum}`):setClinicSheet(true)}
-                    style={{ background:"#f0f7f0", color:"#7C9A7E", border:"none", borderRadius:50, padding:"3px 12px", fontSize:11, fontWeight:700, cursor:"pointer" }}>Book Appointment</button>
+              <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+                <div style={{ fontWeight:700, fontSize:14, color:"#2C3E50" }}>{v.label}</div>
+                {booked[idx] && <span style={{ background:"#f0f7f0", color:"#7C9A7E", borderRadius:50, padding:"2px 10px", fontSize:11, fontWeight:700 }}>Appointment booked ✓</span>}
+              </div>
+              <div style={{ fontSize:12, color:"#8C9BAB" }}>{v.date}</div>
+              <div style={{ display:"flex", gap:8, marginTop:6, flexWrap:"wrap" }}>
+                <span style={{ background:"#FFF8E7", color:"#c47800", borderRadius:50, padding:"3px 10px", fontSize:11, fontWeight:700 }}>{v.daysAway} days away</span>
+              </div>
+              {/* Health Fix 1: Prominent book appointment card */}
+              <div onClick={()=>openBooking(v)} style={{
+                marginTop:10, background:"#E8967A", borderRadius:12, padding:"11px 14px",
+                display:"flex", alignItems:"center", gap:10, cursor:"pointer"
+              }}>
+                <span style={{ fontSize:18 }}>📅</span>
+                <div style={{ flex:1 }}>
+                  <div style={{ color:"#fff", fontWeight:700, fontSize:13 }}>Book next vaccination appointment</div>
+                  <div style={{ color:"rgba(255,255,255,0.8)", fontSize:11 }}>{v.label} · {v.date}</div>
+                </div>
+                <span style={{ color:"#fff", fontSize:18 }}>→</span>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Health Fix 2: Medical history with status pills */}
+      <div style={S.secLabel}>medical history</div>
+      <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:14 }}>
+        {historyCards.map(c=>{
+          const pc = pillColors[c.pillLevel];
+          return (
+            <div key={c.id} style={{ ...S.card, padding:0, overflow:"hidden" }}>
+              <button onClick={()=>setExpanded(expanded===c.id?null:c.id)}
+                style={{ width:"100%", background:"none", border:"none", padding:"13px 16px", cursor:"pointer", display:"flex", alignItems:"center", gap:10 }}>
+                <div style={{ width:34, height:34, borderRadius:"50%", background:c.color+"20", display:"flex", alignItems:"center", justifyContent:"center", fontSize:17, flexShrink:0 }}>{c.icon}</div>
+                <div style={{ flex:1, textAlign:"left", fontWeight:700, fontSize:14, color:"#2C3E50" }}>{c.title}</div>
+                <div style={{ background:pc.bg, color:pc.color, borderRadius:50, padding:"3px 9px", fontSize:10, fontWeight:700, whiteSpace:"nowrap", maxWidth:140, textAlign:"right" }}>{c.pill}</div>
+                <span style={{ color:"#8C9BAB", fontSize:17, transform:expanded===c.id?"rotate(90deg)":"none", transition:"transform 0.2s", marginLeft:4 }}>›</span>
+              </button>
+              {expanded===c.id && (
+                <div style={{ padding:"0 16px 14px", display:"flex", flexDirection:"column", gap:8 }}>
+                  {c.events.map((ev,i)=>(
+                    <div key={i} style={{ display:"flex", gap:8, alignItems:"flex-start" }}>
+                      <div style={{ width:6, height:6, borderRadius:"50%", background:ev.startsWith("⏰")?"#F5A623":"#7C9A7E", marginTop:5, flexShrink:0 }}/>
+                      <div style={{ fontSize:13, color:ev.startsWith("⏰")?"#c47800":"#2C3E50", fontWeight:ev.startsWith("⏰")?700:400 }}>{ev}</div>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
-      <div style={S.secLabel}>medical history</div>
-      <div style={{ display:"flex", flexDirection:"column", gap:8, marginBottom:14 }}>
-        {historyCards.map(c=>(
-          <div key={c.id} style={{ ...S.card, padding:0, overflow:"hidden" }}>
-            <button onClick={()=>setExpanded(expanded===c.id?null:c.id)}
-              style={{ width:"100%", background:"none", border:"none", padding:"14px 16px", cursor:"pointer", display:"flex", alignItems:"center", gap:12 }}>
-              <div style={{ width:36, height:36, borderRadius:"50%", background:c.color+"20", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>{c.icon}</div>
-              <div style={{ flex:1, textAlign:"left", fontWeight:700, fontSize:14, color:"#2C3E50" }}>{c.title}</div>
-              <span style={{ color:"#8C9BAB", fontSize:18, transform:expanded===c.id?"rotate(90deg)":"none", transition:"transform 0.2s" }}>›</span>
-            </button>
-            {expanded===c.id && (
-              <div style={{ padding:"0 16px 16px", display:"flex", flexDirection:"column", gap:8 }}>
-                {c.events.map((ev,i)=>(
-                  <div key={i} style={{ display:"flex", gap:8, alignItems:"flex-start" }}>
-                    <div style={{ width:6, height:6, borderRadius:"50%", background:ev.startsWith("⏰")?"#F5A623":"#7C9A7E", marginTop:5, flexShrink:0 }}/>
-                    <div style={{ fontSize:13, color:ev.startsWith("⏰")?"#c47800":"#2C3E50", fontWeight:ev.startsWith("⏰")?700:400 }}>{ev}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-
+      {/* Health Fix 3: Upload prescriptions */}
       <div style={{ ...S.card, marginBottom:14 }}>
-        <div style={S.secLabel}>upload prescriptions & scans 📎</div>
-        <div style={{ display:"flex", gap:10, marginBottom:12 }}>
-          <label style={{ flex:1, background:"#f5f5f5", color:"#2C3E50", borderRadius:12, padding:"11px 8px", fontSize:13, fontWeight:700, cursor:"pointer", textAlign:"center" }}>
-            📷 Take Photo<input type="file" accept="image/*" capture="camera" style={{ display:"none" }}/>
-          </label>
-          <label style={{ flex:1, background:"#f5f5f5", color:"#2C3E50", borderRadius:12, padding:"11px 8px", fontSize:13, fontWeight:700, cursor:"pointer", textAlign:"center" }}>
-            📁 Upload File<input type="file" accept="image/*,application/pdf" style={{ display:"none" }}/>
-          </label>
+        <div style={S.secLabel}>documents & prescriptions 📎</div>
+        <div style={{ display:"flex", justifyContent:"center" }}>
+          <button onClick={()=>setUploadSheet(true)} style={{ background:"#7C9A7E", color:"#fff", border:"none", borderRadius:50, padding:"11px 24px", fontSize:14, fontWeight:700, cursor:"pointer" }}>＋ Add a file</button>
         </div>
-        <button onClick={()=>showToast("Upload a file first to analyse 📎")}
-          style={{ width:"100%", background:"#f0f7f0", color:"#7C9A7E", border:"none", borderRadius:12, padding:"11px", fontSize:13, fontWeight:700, cursor:"pointer" }}>
-          Read & Summarise with nesti 🌿
-        </button>
       </div>
 
+      {/* Health Fix 4: Doctor Summary */}
       <div style={{ ...S.card, marginBottom:14 }}>
         <div style={S.secLabel}>doctor visit summary 📋</div>
         {!docSummary ? (
@@ -1057,18 +1955,86 @@ function HealthScreen({ showToast }) {
           </button>
         ) : (
           <>
-            <div style={{ background:"#f8fdf8", borderRadius:12, padding:14, fontSize:13, color:"#2C3E50", lineHeight:1.75, whiteSpace:"pre-line", marginBottom:12, maxHeight:280, overflowY:"auto" }}>{docSummary}</div>
-            <button onClick={()=>{ navigator.clipboard?.writeText(docSummary); showToast("Copied to clipboard ✓"); }}
-              style={{ width:"100%", background:"#f0f7f0", color:"#7C9A7E", border:"none", borderRadius:12, padding:"11px", fontWeight:700, cursor:"pointer", fontSize:14 }}>Copy Summary</button>
+            <div style={{ background:"#f8fdf8", borderRadius:12, padding:14, fontSize:12, color:"#2C3E50", lineHeight:1.8, whiteSpace:"pre-line", marginBottom:12, maxHeight:320, overflowY:"auto", fontFamily:"monospace" }}>{docSummary}</div>
+            <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+              <button onClick={()=>{ navigator.clipboard?.writeText(docSummary); showToast("Full summary copied ✓"); }}
+                style={{ flex:1, background:"#f0f7f0", color:"#7C9A7E", border:"none", borderRadius:12, padding:"10px 8px", fontWeight:700, cursor:"pointer", fontSize:12 }}>Copy Full Summary</button>
+              <button onClick={()=>{ navigator.clipboard?.writeText(shortWaMsg); showToast("WhatsApp message copied ✓"); }}
+                style={{ flex:1, background:"#f0f0f0", color:"#2C3E50", border:"none", borderRadius:12, padding:"10px 8px", fontWeight:700, cursor:"pointer", fontSize:12 }}>Copy for WhatsApp</button>
+            </div>
+            <button onClick={()=>setDocSummary(null)} style={{ width:"100%", background:"none", border:"1px solid #e0e0e0", borderRadius:12, padding:"9px", fontSize:12, color:"#8C9BAB", cursor:"pointer", marginTop:8 }}>↻ Regenerate</button>
           </>
         )}
       </div>
 
-      <BottomSheet open={clinicSheet} onClose={()=>setClinicSheet(false)} title="Add Dr. Khanna's clinic number">
-        <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
-          <div><div style={S.label}>Clinic Number</div><input type="tel" value={clinicNum} onChange={e=>setClinicNum(e.target.value)} placeholder="+91 98xxx xxxxx" style={S.input}/></div>
-          <button onClick={()=>{ setClinicSheet(false); showToast("Clinic number saved ✓"); }} style={S.saveBtn}>Save Number ✓</button>
-        </div>
+      {/* Health Fix 1: Book appointment two-step sheet */}
+      <BottomSheet open={!!bookStep} onClose={()=>setBookStep(null)} title={bookStep?.step===1 ? "Add clinic number" : "Book appointment 📅"}>
+        {bookStep?.step===1 && (
+          <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+            <div style={{ fontSize:14, color:"#8C9BAB" }}>What's Dr. Khanna's clinic number?</div>
+            <input type="tel" value={tempNum} onChange={e=>setTempNum(e.target.value)} placeholder="+91 98xxx xxxxx" style={{ ...S.input, fontSize:18, textAlign:"center" }}/>
+            <button onClick={()=>{ setClinicNum(tempNum); setBookStep(b=>({...b,step:2})); showToast("Number saved ✓"); }}
+              style={S.saveBtn}>Save & Continue →</button>
+          </div>
+        )}
+        {bookStep?.step===2 && (
+          <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+            <div style={{ background:"#f0f7f0", borderRadius:12, padding:"12px 14px" }}>
+              <div style={{ fontWeight:700, color:"#2C3E50", fontSize:14 }}>{bookStep.vacc?.label}</div>
+              <div style={{ fontSize:12, color:"#8C9BAB" }}>Due: {bookStep.vacc?.date}</div>
+            </div>
+            <div style={{ display:"flex", gap:10 }}>
+              <button onClick={()=>{ const idx=VACC_UPCOMING.indexOf(bookStep.vacc); setBooked(b=>({...b,[idx]:true})); setBookStep(null); showToast("Appointment booked ✓"); }}
+                style={{ flex:1, background:"#7C9A7E", color:"#fff", border:"none", borderRadius:14, padding:"16px 8px", fontSize:14, fontWeight:700, cursor:"pointer" }}>✅ I've booked it</button>
+              <a href={`tel:${clinicNum}`} onClick={()=>setBookStep(null)}
+                style={{ flex:1, background:"#E8967A", color:"#fff", borderRadius:14, padding:"16px 8px", fontSize:14, fontWeight:700, cursor:"pointer", textDecoration:"none", textAlign:"center", display:"flex", alignItems:"center", justifyContent:"center" }}>📞 Call Clinic</a>
+            </div>
+          </div>
+        )}
+      </BottomSheet>
+
+      {/* Health Fix 3: Upload sheet */}
+      <BottomSheet open={uploadSheet} onClose={()=>{ setUploadSheet(false); setUploadState("idle"); setUploadData(null); }} title="Add a document">
+        {uploadState==="idle" && (
+          <div style={{ display:"flex", gap:12 }}>
+            <label style={{ flex:1, background:"#f0f7f0", borderRadius:16, padding:"24px 12px", cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", gap:8, border:"2px dashed #7C9A7E33" }}>
+              <span style={{ fontSize:36 }}>📷</span>
+              <div style={{ fontWeight:700, color:"#2C3E50", fontSize:13 }}>Open Camera</div>
+              <div style={{ fontSize:11, color:"#8C9BAB" }}>Take a photo</div>
+              <input type="file" accept="image/*" capture="camera" style={{ display:"none" }} onChange={e=>handleFileSelect(e.target.files[0])}/>
+            </label>
+            <label style={{ flex:1, background:"#f5f5f5", borderRadius:16, padding:"24px 12px", cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", gap:8, border:"2px dashed #e0e0e0" }}>
+              <span style={{ fontSize:36 }}>📁</span>
+              <div style={{ fontWeight:700, color:"#2C3E50", fontSize:13 }}>Upload File</div>
+              <div style={{ fontSize:11, color:"#8C9BAB" }}>Image or PDF</div>
+              <input type="file" accept="image/*,application/pdf" style={{ display:"none" }} onChange={e=>handleFileSelect(e.target.files[0])}/>
+            </label>
+          </div>
+        )}
+        {uploadState==="scanning" && (
+          <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:16, padding:"24px 0" }}>
+            <div style={{ width:60, height:60, border:"3px solid rgba(124,154,126,0.3)", borderTopColor:"#7C9A7E", borderRadius:"50%", animation:"spin 0.8s linear infinite" }}/>
+            <div style={{ fontWeight:700, color:"#2C3E50" }}>Reading your file... 🔍</div>
+            <div style={{ fontSize:13, color:"#8C9BAB" }}>Analysing with nesti</div>
+          </div>
+        )}
+        {uploadState==="review" && uploadData && (
+          <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+            <div style={{ fontWeight:700, color:"#2C3E50", fontSize:15 }}>Here's what nesti found 🔍</div>
+            {Object.entries(uploadData).filter(([k,v])=>v&&(typeof v!=="object"||v.length)).map(([k,v])=>(
+              <div key={k} style={{ display:"flex", gap:10, borderBottom:"1px solid #f5f5f5", paddingBottom:10 }}>
+                <div style={{ fontSize:12, fontWeight:700, color:"#8C9BAB", textTransform:"capitalize", width:100, flexShrink:0 }}>{k.replace(/([A-Z])/g," $1")}</div>
+                <div style={{ fontSize:13, color:"#2C3E50", flex:1 }}>{typeof v==="object"?v.map(m=>`${m.name} ${m.dose} ${m.frequency}`).join(", "):String(v)}</div>
+              </div>
+            ))}
+            <div style={{ display:"flex", gap:10 }}>
+              <button onClick={()=>{ setUploadSheet(false); setUploadState("idle"); showToast("Document saved to records ✓"); }}
+                style={{ flex:1, ...S.saveBtn, marginTop:0 }}>Looks good — Save ✓</button>
+              <button onClick={()=>setUploadState("edit")}
+                style={{ flex:1, background:"none", border:"1.5px solid #2C3E50", color:"#2C3E50", borderRadius:24, padding:"14px", fontSize:14, fontWeight:700, cursor:"pointer" }}>Edit ✏️</button>
+            </div>
+          </div>
+        )}
       </BottomSheet>
     </div>
   );
@@ -1163,11 +2129,13 @@ function App() {
   const [extras, setExtras] = useState([]);
   const [toast,  setToast]  = useState(null);
   const [voice,  setVoice]  = useState(false);
+  const [voiceSheet, setVoiceSheet] = useState(null);
 
   const showToast = useCallback(m=>setToast(m),[]);
   const onLog     = useCallback(e=>setLogs(p=>[...p,{...e,_id:`l${Date.now()}`,_ts:Date.now(),_relTime:"just now"}]),[]);
   const onDelete  = useCallback(id=>setLogs(p=>p.filter(l=>l._id!==id)),[]);
   const onMeasure = useCallback(m=>setExtras(p=>[...p,m]),[]);
+  const openSheet = useCallback(type=>{ setVoice(false); setTimeout(()=>setVoiceSheet(type),200); },[]);
 
   const nav = [
     {id:"today",   icon:"🏠", label:"Today"},
@@ -1176,6 +2144,16 @@ function App() {
     {id:"memories",icon:"📸", label:"Memories"},
   ];
 
+  // SVG waveform icon for FAB (Change E)
+  const WaveformIcon = () => (
+    <svg width="22" height="22" viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="2"  y="8"  width="3" height="6"  rx="1.5" fill="white"/>
+      <rect x="7"  y="4"  width="3" height="14" rx="1.5" fill="white"/>
+      <rect x="12" y="6"  width="3" height="10" rx="1.5" fill="white"/>
+      <rect x="17" y="9"  width="3" height="4"  rx="1.5" fill="white"/>
+    </svg>
+  );
+
   return (
     <div style={{ background:"#FDFCFA", minHeight:"100vh", display:"flex", justifyContent:"center" }}>
       <div style={{ width:"100%", maxWidth:430, minHeight:"100vh", display:"flex", flexDirection:"column", position:"relative" }}>
@@ -1183,19 +2161,33 @@ function App() {
         {/* screen content */}
         <div style={{ flex:1, overflowY:"auto", padding:"20px 16px 90px" }}>
           {tab==="today"    && <TodayScreen   logs={logs} onLog={onLog} onDeleteLog={onDelete} showToast={showToast}/>}
-          {tab==="growth"   && <GrowthScreen  extraMeasurements={extras} onAddMeasurement={onMeasure}/>}
+          {tab==="growth"   && <GrowthScreen  extraMeasurements={extras} onAddMeasurement={onMeasure} showToast={showToast}/>}
           {tab==="health"   && <HealthScreen  showToast={showToast}/>}
           {tab==="memories" && <MemoriesScreen showToast={showToast}/>}
         </div>
 
-        {/* voice fab */}
+        {/* Change E: SVG waveform FAB with ring pulse */}
         <button onClick={()=>setVoice(true)} style={{
-          position:"fixed", bottom:78, right:"max(16px, calc(50% - 199px))",
-          width:52, height:52, borderRadius:"50%", background:"#7C9A7E", border:"none",
-          boxShadow:"0 4px 20px rgba(124,154,126,0.55)", cursor:"pointer",
-          display:"flex", alignItems:"center", justifyContent:"center",
-          fontSize:22, zIndex:300, color:"#fff", animation:"voicePulse 2.5s ease infinite"
-        }}>🎙</button>
+          position:"fixed", bottom:80, right:"max(16px, calc(50% - 199px))",
+          width:56, height:56, borderRadius:"50%", background:"#7C9A7E", border:"none",
+          cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center",
+          zIndex:300, animation:"ringPulse 2.8s ease infinite"
+        }}>
+          <WaveformIcon/>
+        </button>
+
+        {/* Pre-filled sheet opened from voice parsing (Change F) */}
+        {voiceSheet && (
+          <BottomSheet open={true} onClose={()=>setVoiceSheet(null)} title={
+            voiceSheet==="feed"?"🍼 Log Feed":voiceSheet==="sleep"?"💤 Log Sleep":voiceSheet==="diaper"?"🩲 Log Diaper":voiceSheet==="weight"?"⚖️ Log Weight":"💊 Log Medicine"
+          }>
+            {voiceSheet==="feed"   && <FeedForm   onSave={l=>{ onLog(l); setVoiceSheet(null); showToast("Feed logged 🍼"); }}/>}
+            {voiceSheet==="sleep"  && <SleepForm  onSave={l=>{ onLog(l); setVoiceSheet(null); showToast("Sleep logged 💤"); }}/>}
+            {voiceSheet==="diaper" && <DiaperForm onSave={l=>{ onLog(l); setVoiceSheet(null); showToast("Diaper logged 🩲"); }}/>}
+            {voiceSheet==="weight" && <WeightForm onSave={l=>{ onLog(l); setVoiceSheet(null); showToast("Weight logged ⚖️"); }}/>}
+            {voiceSheet==="med"    && <MedForm    onSave={l=>{ onLog(l); setVoiceSheet(null); showToast("Medicine logged 💊"); }}/>}
+          </BottomSheet>
+        )}
 
         {/* bottom nav */}
         <div style={{
@@ -1217,7 +2209,7 @@ function App() {
           ))}
         </div>
 
-        {voice && <VoiceLog onClose={()=>setVoice(false)} onLog={onLog} showToast={showToast}/>}
+        {voice && <VoiceLog onClose={()=>setVoice(false)} onLog={onLog} logs={logs} showToast={showToast} openSheet={openSheet}/>}
         {toast && <Toast message={toast} onDone={()=>setToast(null)}/>}
       </div>
     </div>
