@@ -131,36 +131,59 @@ function SVGLineChart({ data, lines, height=210, yDomain }) {
   );
 }
 
-function SVGMiniBarChart({ data, height=80 }) {
+function SVGMiniBarChart({ data, height=88 }) {
   const W = 300, H = height;
-  const PAD = { top:4, right:4, bottom:16, left:4 };
+  const PAD = { top:6, right:4, bottom:24, left:4 };
   const innerW = W - PAD.left - PAD.right;
   const innerH = H - PAD.top - PAD.bottom;
   const vals = data.map(d=>d.v);
-  const maxV = Math.max(...vals)*1.1||1;
-  const barW = Math.max(2, (innerW/data.length)*0.7);
+  const maxV = Math.max(...vals, 1)*1.1;
+  const barW = Math.max(4, (innerW/data.length)*0.8);
   const gap = innerW/data.length;
+  const avgVal = data[0]?.avg;
+  const maxI = vals.indexOf(Math.max(...vals));
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} style={{ width:"100%", height:H, display:"block" }}>
-      {data.map((d,i)=>{
-        const bh = Math.max(2,(d.v/maxV)*innerH);
-        const x = PAD.left + i*gap + gap/2 - barW/2;
-        const y = PAD.top + innerH - bh;
-        return (
-          <g key={i}>
-            <rect x={x} y={y} width={barW} height={bh} rx={2}
-              fill={d.good?"#7C9A7E":"#E8967A"}/>
-            <text x={x+barW/2} y={H-3} textAnchor="middle" fontSize={7} fill="#8C9BAB">{d.name}</text>
-          </g>
-        );
-      })}
-      {data[0]?.avg && (
-        <line x1={PAD.left} y1={PAD.top+innerH-(data[0].avg/maxV)*innerH}
-          x2={W-PAD.right} y2={PAD.top+innerH-(data[0].avg/maxV)*innerH}
-          stroke="#E8967A" strokeDasharray="3 3" strokeWidth={1.5}/>
-      )}
-    </svg>
+    <div style={{ display:"flex", flexDirection:"column", alignItems:"center" }}>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width:"100%", height:H, display:"block" }}>
+        {/* avg line */}
+        {avgVal && (
+          <>
+            <line x1={PAD.left} y1={PAD.top+innerH-(avgVal/maxV)*innerH}
+              x2={W-PAD.right} y2={PAD.top+innerH-(avgVal/maxV)*innerH}
+              stroke="#E8967A" strokeDasharray="4 3" strokeWidth={1.5}/>
+            <text x={W-PAD.right-2} y={PAD.top+innerH-(avgVal/maxV)*innerH-3} textAnchor="end" fontSize={7} fill="#E8967A" fontWeight="600">
+              avg:{Math.round(avgVal)}
+            </text>
+          </>
+        )}
+        {data.map((d,i)=>{
+          const bh = Math.max(3,(d.v/maxV)*innerH);
+          const x = PAD.left + i*gap + gap/2 - barW/2;
+          const y = PAD.top + innerH - bh;
+          const fillColor = d.today ? "#F5A623" : d.good ? "#7C9A7E" : "#E8967A";
+          return (
+            <g key={i}>
+              <rect x={x} y={y} width={barW} height={bh} rx={2} fill={fillColor}/>
+              {i===maxI && (
+                <text x={x+barW/2} y={y-3} textAnchor="middle" fontSize={7} fill={fillColor} fontWeight="700">
+                  {d.v}
+                </text>
+              )}
+              <text x={x+barW/2} y={H-6} textAnchor="middle" fontSize={8} fill="#8C9BAB">{d.name}</text>
+            </g>
+          );
+        })}
+      </svg>
+      <div style={{ display:"flex", gap:8, justifyContent:"center", marginTop:2 }}>
+        {[["#7C9A7E","Met"],["#E8967A","Missed"],["#F5A623","Today"]].map(([c,l])=>(
+          <div key={l} style={{ display:"flex", alignItems:"center", gap:3, fontSize:8, color:"#8C9BAB" }}>
+            <div style={{ width:6, height:6, borderRadius:"50%", background:c }}/>
+            {l}
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -345,50 +368,42 @@ function useAudioEngine() {
       lfo.start();
       nodes.current.osc = lfo;
     } else if (type === "birds") {
-      // Background ambience — light high-passed noise
-      const sz = ac.sampleRate * 3;
-      const buf = ac.createBuffer(1, sz, ac.sampleRate);
-      const d = buf.getChannelData(0);
-      for (let i = 0; i < sz; i++) d[i] = (Math.random()*2-1)*0.15;
-      const bg = ac.createBufferSource();
-      bg.buffer = buf; bg.loop = true;
-      const hp = ac.createBiquadFilter(); hp.type="highpass"; hp.frequency.value=1200;
-      bg.connect(hp); hp.connect(master); bg.start();
-      nodes.current.src = bg;
-
-      // Chirp function — short sine bursts at bird frequencies
+      // Fix 13: 3 sine oscillators at bird frequencies, gentle chirps
+      const master2 = master; // use master gain at 0.12
+      master2.gain.setValueAtTime(0.12, ac.currentTime);
       const birdTimers = [];
-      const chirp = (freq, duration, delay) => {
-        const t = setTimeout(() => {
+      const chirpOsc = (freq, delayMs) => {
+        const tid = setTimeout(() => {
           if (!nodes.current.master) return;
           const o = ac.createOscillator();
           const g = ac.createGain();
           const now = ac.currentTime;
+          o.type = "sine";
           o.frequency.setValueAtTime(freq, now);
-          o.frequency.linearRampToValueAtTime(freq * 1.15, now + duration * 0.4);
-          o.frequency.linearRampToValueAtTime(freq, now + duration);
+          o.frequency.linearRampToValueAtTime(freq + 150, now + 0.06);
+          // Attack 10ms, hold 60ms, release 40ms
           g.gain.setValueAtTime(0, now);
-          g.gain.linearRampToValueAtTime(0.18, now + 0.02);
-          g.gain.setValueAtTime(0.18, now + duration - 0.03);
-          g.gain.linearRampToValueAtTime(0, now + duration);
-          o.connect(g); g.connect(master);
-          o.start(now); o.stop(now + duration);
-        }, delay);
-        birdTimers.push(t);
+          g.gain.linearRampToValueAtTime(0.8, now + 0.01);
+          g.gain.setValueAtTime(0.8, now + 0.07);
+          g.gain.linearRampToValueAtTime(0, now + 0.11);
+          o.connect(g); g.connect(master2);
+          o.start(now); o.stop(now + 0.12);
+        }, delayMs);
+        birdTimers.push(tid);
       };
-      // Schedule repeating bird calls
-      const schedule = () => {
+      const scheduleChirps = () => {
         if (!nodes.current.master) return;
-        const patterns = [
-          [2800, 0.12], [3200, 0.1], [2400, 0.14], [3600, 0.09], [2100, 0.11]
-        ];
-        patterns.forEach(([f,d], i) => {
-          if (Math.random() > 0.4) chirp(f, d, i * 180 + Math.random() * 300);
+        const freqs = [3000, 3400, 3800];
+        freqs.forEach(freq => {
+          if (Math.random() > 0.3) {
+            chirpOsc(freq, Math.random() * 400);
+          }
         });
-        const t = setTimeout(schedule, 1800 + Math.random() * 1200);
+        const interval = 600 + Math.random() * 1400;
+        const t = setTimeout(scheduleChirps, interval);
         birdTimers.push(t);
       };
-      schedule();
+      scheduleChirps();
       nodes.current.birdTimers = birdTimers;
     } else if (type === "om") {
       // 136.1Hz Om frequency with harmonics
@@ -708,82 +723,140 @@ function MedForm({ onSave, prefill }) {
   );
 }
 
-// ─── VOICE LOG ────────────────────────────────────────────
+// ─── VOICE LOG (Fix 1: complete rebuild) ──────────────────
 function VoiceLog({ onClose, onLog, logs, showToast, openSheet }) {
-  const [status,     setStatus]     = useState("listening");
-  const [transcript, setTranscript] = useState("");
-  const [parsed,     setParsed]     = useState(null);
+  const [status,       setStatus]       = useState("listening");
+  const [transcript,   setTranscript]   = useState("");
+  const [interimText,  setInterimText]  = useState("");
+  const [parsed,       setParsed]       = useState(null);
   const [searchResult, setSearchResult] = useState(null);
-  const [hint,       setHint]       = useState(0);
-  const recRef    = useRef(null);
-  const minTimer  = useRef(null);
-  const canProcess = useRef(false);
+  const [errorMsg,     setErrorMsg]     = useState("");
+  const [hint,         setHint]         = useState(0);
+  const recRef     = useRef(null);
+  const minReady   = useRef(false);
+  const minTimer   = useRef(null);
+  const timeoutRef = useRef(null);
 
   const hints = [
     'Say: "Fed Maanvik 60ml breastmilk"',
-    'Say: "Diaper change, wet, heavy"',
     'Say: "Maanvik slept 2 hours settled"',
+    'Say: "Diaper change, wet"',
     'Say: "When was the last feed?"',
-    'Say: "How much milk today?"',
+    'Say: "Gave vitamin D drops"',
   ];
 
-  useEffect(() => {
+  useEffect(()=>{
     const t = setInterval(()=>setHint(h=>(h+1)%hints.length), 2500);
     return ()=>clearInterval(t);
   },[]);
 
-  useEffect(() => {
-    // Minimum 5s before we act on speech
-    minTimer.current = setTimeout(()=>{ canProcess.current = true; }, 5000);
+  const resetAndClose = () => {
+    try { recRef.current?.abort(); } catch{}
+    recRef.current = null;
+    minReady.current = false;
+    clearTimeout(minTimer.current);
+    clearTimeout(timeoutRef.current);
+    onClose();
+  };
+
+  const startRecognition = () => {
+    // Abort any existing instance first
+    try { recRef.current?.abort(); } catch{}
+    recRef.current = null;
+    minReady.current = false;
+    clearTimeout(minTimer.current);
+    clearTimeout(timeoutRef.current);
+    setTranscript(""); setInterimText(""); setParsed(null); setSearchResult(null); setErrorMsg("");
+    setStatus("listening");
 
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) { setStatus("unsupported"); return; }
-    const r = new SR();
-    r.continuous = true; r.interimResults = true; r.lang = "en-IN";
-    r.onresult = e => {
-      const t = Array.from(e.results).map(r=>r[0].transcript).join(" ");
-      setTranscript(t);
-      if (e.results[e.results.length-1].isFinal && canProcess.current) {
-        setStatus("processing"); processVoice(t);
-      }
-    };
-    r.onerror = ()=>setStatus("error");
-    recRef.current = r;
-    r.start();
-    return ()=>{ try { r.stop(); } catch{}  clearTimeout(minTimer.current); };
-  },[]);
 
-  // Timeout after 12s if nothing final
-  useEffect(()=>{
-    const t = setTimeout(()=>{ if(status==="listening") setStatus("timeout"); }, 12000);
-    return ()=>clearTimeout(t);
-  },[status]);
+    // Wait 400ms then create fresh instance
+    setTimeout(()=>{
+      const r = new SR();
+      r.continuous = false;
+      r.interimResults = true;
+      r.lang = "en-IN";
+      r.maxAlternatives = 3;
+
+      r.onresult = (e) => {
+        // Show interim transcript in real time
+        const interim = Array.from(e.results)
+          .filter(r=>!r.isFinal).map(r=>r[0].transcript).join(" ");
+        const final = Array.from(e.results)
+          .filter(r=>r.isFinal);
+        if (interim) setInterimText(interim);
+
+        if (final.length > 0 && minReady.current) {
+          // Pick best alternative across all final results
+          let bestText = "", bestConf = -1;
+          final.forEach(res=>{
+            Array.from({length:res.length},(_,i)=>res[i]).forEach(alt=>{
+              if (alt.confidence > bestConf) { bestConf = alt.confidence; bestText = alt.transcript; }
+            });
+          });
+          if (!bestText) bestText = final[0][0].transcript;
+          setTranscript(bestText);
+          setInterimText("");
+          setStatus("processing");
+          clearTimeout(timeoutRef.current);
+          processVoice(bestText);
+        }
+      };
+
+      r.onerror = (e) => {
+        const msgs = {
+          "no-speech": "Didn't hear anything — tap to try again",
+          "network":   "Network issue — try again",
+          "not-allowed":"Microphone access needed — please allow in browser settings",
+        };
+        setErrorMsg(msgs[e.error] || "Something went wrong — tap to try again");
+        setStatus("error");
+      };
+
+      r.onend = () => {
+        // If still listening and nothing processed, set timeout
+        if (status === "listening") {
+          clearTimeout(timeoutRef.current);
+          timeoutRef.current = setTimeout(()=>setStatus("timeout"), 500);
+        }
+      };
+
+      recRef.current = r;
+      try { r.start(); } catch(e) { setStatus("error"); setErrorMsg("Could not start microphone"); }
+
+      // 5 second minimum before acting on result
+      minTimer.current = setTimeout(()=>{ minReady.current = true; }, 5000);
+      // 15s total timeout
+      timeoutRef.current = setTimeout(()=>{ if(status==="listening") setStatus("timeout"); }, 15000);
+    }, 400);
+  };
+
+  useEffect(()=>{ startRecognition(); return ()=>{ try{recRef.current?.abort();}catch{} clearTimeout(minTimer.current); clearTimeout(timeoutRef.current); }; },[]);
 
   const processVoice = (text) => {
     const l = text.toLowerCase();
-    // SEARCH intent
-    if (/when|how much|last|show|what was|find|how many/.test(l)) {
-      handleSearch(l);
-      return;
+    if (/\b(when|last|how much|how many|show|what|find|tell me)\b/.test(l)) {
+      handleSearch(l); return;
     }
-    // LOG intent
     parseVoice(l, text);
   };
 
   const handleSearch = (l) => {
-    const feedLogs = logs.filter(x=>x.type==="feed");
-    const sleepLogs = logs.filter(x=>x.type==="sleep");
+    const feedLogs   = logs.filter(x=>x.type==="feed");
+    const sleepLogs  = logs.filter(x=>x.type==="sleep");
     const diaperLogs = logs.filter(x=>x.type==="diaper");
     let result = null;
-
-    if (/feed|milk|breastmilk|formula/.test(l)) {
+    if (/feed|milk|breast|formula/.test(l)) {
       if (feedLogs.length > 0) {
         const last = feedLogs[feedLogs.length-1];
         const minsAgo = last._ts ? Math.round((Date.now()-last._ts)/60000) : 45;
         const totalMl = feedLogs.reduce((s,f)=>s+(parseFloat(f.volume)||0),0);
-        if (/how much|total/.test(l)) result = `🍼 ${totalMl}ml total across ${feedLogs.length} feeds today`;
-        else result = `🍼 Last feed was ${last.volume}ml ${last.feedType}, ${minsAgo < 60 ? minsAgo+"m ago" : Math.round(minsAgo/60)+"hr ago"}`;
-      } else { result = "🍼 No feeds logged yet today"; }
+        result = /how much|total/.test(l)
+          ? `🍼 ${totalMl}ml total across ${feedLogs.length} feeds today`
+          : `🍼 Last feed: ${last.volume}ml ${last.feedType}, ${minsAgo<60?minsAgo+"m":Math.round(minsAgo/60)+"hr"} ago`;
+      } else result = "🍼 No feeds logged yet today";
     } else if (/sleep|nap/.test(l)) {
       const totalMin = sleepLogs.reduce((s,sl)=>{
         if(sl.end==="now") return s+60;
@@ -791,185 +864,237 @@ function VoiceLog({ onClose, onLog, logs, showToast, openSheet }) {
         const [eh,em]=sl.end.split(":").map(Number);
         return s+Math.max(0,(eh*60+em)-(sh*60+sm));
       },0);
-      result = `💤 ${Math.floor(totalMin/60)}h ${totalMin%60}m sleep logged today (${sleepLogs.length} sessions)`;
-    } else if (/diaper|nappy/.test(l)) {
+      result = `💤 ${Math.floor(totalMin/60)}h ${totalMin%60}m sleep today (${sleepLogs.length} sessions)`;
+    } else if (/diaper|nappy|pee|poop/.test(l)) {
       result = `🩲 ${diaperLogs.length} diaper changes logged today`;
     } else {
-      result = "🔍 I found your logs — tap any entry in Today's timeline to see details";
+      result = "🔍 Tap any log entry in Today's timeline to see details";
     }
     setSearchResult(result); setStatus("search");
   };
 
   const parseVoice = (l, raw) => {
     let result = null;
-    if (/fed|feed|milk|breastmilk|formula/.test(l)) {
-      const ml = l.match(/(\d+)\s*ml/)?.[1] || null;
+
+    // SLEEP — keywords: sleep, slept, nap, napped, resting, rested
+    if (/\b(sleep|slept|nap|napped|resting|rested)\b/.test(l)) {
+      const hrMatch  = l.match(/(\d+)\s*(?:hr|hrs|hour|hours)/);
+      const minMatch = l.match(/(\d+)\s*(?:min|mins|minute|minutes)/);
+      const hrs  = hrMatch  ? parseInt(hrMatch[1])  : 0;
+      const mins = minMatch ? parseInt(minMatch[1]) : 0;
+      if (!hrs && !mins) { openSheet("sleep"); resetAndClose(); return; }
+      const totalMins = hrs*60 + mins;
+      const endH = new Date();
+      const startMs = Date.now() - totalMins*60000;
+      const startTime = new Date(startMs).toTimeString().slice(0,5);
+      const endTime   = endH.toTimeString().slice(0,5);
+      const quality = /unsettl|restless|fuss/.test(l) ? "unsettled" : "settled";
+      const label = hrs && mins ? `${hrs}hr ${mins}min` : hrs ? `${hrs}hr` : `${mins}min`;
+      result = { type:"sleep", start:startTime, end:endTime, quality, display:`💤 Sleep — ${label}, ${quality}` };
+    }
+    // FEED — keywords: fed, feed, feeding, milk, breastfeed, formula, nurse, nursed
+    else if (/\b(fed|feed|feeding|milk|breastfeed|formula|nurse|nursed)\b/.test(l)) {
+      const ml = l.match(/(\d+)\s*(?:ml|milliliter)/)?.[1] || null;
       const ft = /formula/.test(l) ? "formula" : "breastmilk";
-      if (!ml) { openSheet("feed"); onClose(); return; }
+      if (!ml) { openSheet("feed"); resetAndClose(); return; }
       result = { type:"feed", feedType:ft, volume:ml, display:`🍼 Feed — ${ml}ml, ${ft==="breastmilk"?"Breastmilk":"Formula"}` };
-    } else if (/sleep|slept|nap/.test(l)) {
-      const hrs = l.match(/(\d+)\s*(?:hour|hr)/)?.[1] || null;
-      if (!hrs) { openSheet("sleep"); onClose(); return; }
-      result = { type:"sleep", start:new Date().toTimeString().slice(0,5), end:`${String((new Date().getHours()-parseInt(hrs)+24)%24).padStart(2,"0")}:00`, quality:/unsettl/.test(l)?"unsettled":"settled", display:`💤 Sleep — ${hrs}hr` };
-    } else if (/diaper|nappy|wet|soiled|poop/.test(l)) {
-      const dt = /soiled|poop/.test(l) ? "soiled" : /both/.test(l) ? "both" : "wet";
+    }
+    // DIAPER — keywords: diaper, nappy, pee, poop, wet, soiled, potty, change
+    else if (/\b(diaper|nappy|pee|poop|wet|soiled|potty|change)\b/.test(l)) {
+      const hasPoop = /poop|soiled|potty/.test(l);
+      const hasPee  = /pee|wet/.test(l);
+      const dt = hasPoop && hasPee ? "both" : hasPoop ? "soiled" : "wet";
       const wetness = /heavy/.test(l)?"heavy":/light/.test(l)?"light":"normal";
       result = { type:"diaper", diaperType:dt, wetness, display:`🩲 Diaper — ${dt}${dt!=="soiled"?`, ${wetness}`:""}` };
-    } else if (/weight|weigh/.test(l)) {
-      const kg = l.match(/(\d+\.?\d*)\s*kg/)?.[1] || "";
-      result = { type:"weight", value:kg, display:`⚖️ Weight — ${kg}kg` };
-    } else if (/medicine|vitamin|iron|calcium/.test(l)) {
-      const medName = /vitamin d/i.test(raw)?"vd3":/vitamin a/i.test(raw)?"vaz":/iron|tonoferron/i.test(raw)?"iron":"calc";
-      result = { type:"med", medId:medName, medName:MEDS.find(m=>m.id===medName)?.name||"Vitamin D3", display:"💊 Medication logged" };
     }
+    // MEDICINE — keywords: medicine, medication, vitamin, drops, calcium, iron, dose, gave
+    else if (/\b(medicine|medication|vitamin|drops|calcium|iron|dose|gave)\b/.test(l)) {
+      const medId = /vitamin\s*d/i.test(raw)?"vd3":/vitamin\s*a/i.test(raw)?"vaz":/iron|tonoferron/i.test(raw)?"iron":"calc";
+      const medName = MEDS.find(m=>m.id===medId)?.name || "Vitamin D3";
+      result = { type:"med", medId, medName, display:`💊 ${medName}` };
+    }
+
     if (result) { setParsed(result); setStatus("preview"); }
     else setStatus("unparseable");
   };
 
-  const overlayStyle = { position:"fixed", inset:0, background:"rgba(20,28,38,0.88)",
+  const retryFn = () => startRecognition();
+
+  const overlay = { position:"fixed", inset:0, background:"rgba(20,28,38,0.88)",
     zIndex:2000, display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center",
     backdropFilter:"blur(10px)" };
 
   return (
-    <div style={overlayStyle}>
-      <button onClick={onClose} style={{ position:"absolute", top:24, right:24, background:"rgba(255,255,255,0.15)", border:"none", borderRadius:"50%", width:40, height:40, color:"#fff", fontSize:18, cursor:"pointer" }}>✕</button>
-      {status==="listening" && <>
-        <div style={{ display:"flex", alignItems:"flex-end", gap:5, height:64, marginBottom:28 }}>
-          {[0.4,0.7,1.0,0.7,0.4,0.85,0.55].map((h,i)=>(
-            <div key={i} style={{ width:5, borderRadius:5, background:"#7C9A7E",
-              animation:`waveBar ${0.6+i*0.12}s ease infinite`, animationDelay:`${i*0.09}s`,
-              minHeight:8 }}/>
-          ))}
-        </div>
-        <div style={{ color:"#fff", fontSize:20, fontWeight:700, marginBottom:8 }}>Listening...</div>
-        <div style={{ color:"rgba(255,255,255,0.5)", fontSize:13, marginBottom:20, textAlign:"center", maxWidth:260 }}>Hold still for 5 seconds — I'm listening carefully</div>
-        <div style={{ color:"rgba(255,255,255,0.6)", fontSize:12, maxWidth:280, textAlign:"center", fontStyle:"italic", transition:"opacity 0.4s" }}>{hints[hint]}</div>
-        {transcript && <div style={{ marginTop:20, color:"rgba(255,255,255,0.9)", fontSize:15, fontStyle:"italic", maxWidth:300, textAlign:"center" }}>"{transcript}"</div>}
-      </>}
+    <div style={overlay}>
+      <button onClick={resetAndClose} style={{ position:"absolute", top:24, right:24, background:"rgba(255,255,255,0.15)", border:"none", borderRadius:"50%", width:40, height:40, color:"#fff", fontSize:18, cursor:"pointer" }}>✕</button>
+
+      {status==="listening" && (
+        <>
+          <div style={{ display:"flex", alignItems:"flex-end", gap:5, height:64, marginBottom:28 }}>
+            {[0.4,0.7,1.0,0.7,0.4,0.85,0.55].map((h,i)=>(
+              <div key={i} style={{ width:5, borderRadius:5, background:"#7C9A7E",
+                animation:`waveBar ${0.6+i*0.12}s ease infinite`, animationDelay:`${i*0.09}s`, minHeight:8 }}/>
+            ))}
+          </div>
+          <div style={{ color:"#fff", fontSize:20, fontWeight:700, marginBottom:8 }}>Listening...</div>
+          <div style={{ color:"rgba(255,255,255,0.5)", fontSize:13, marginBottom:16, textAlign:"center", maxWidth:280 }}>Speak clearly — I'll capture your best attempt</div>
+          <div style={{ color:"rgba(255,255,255,0.6)", fontSize:12, maxWidth:280, textAlign:"center", fontStyle:"italic" }}>{hints[hint]}</div>
+          {(interimText||transcript) && (
+            <div style={{ marginTop:20, color:"rgba(255,255,255,0.9)", fontSize:15, fontStyle:"italic", maxWidth:300, textAlign:"center", minHeight:24 }}>
+              "{interimText || transcript}"
+            </div>
+          )}
+        </>
+      )}
+
       {status==="processing" && (
         <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:12 }}>
           <div style={{ width:40, height:40, border:"3px solid rgba(124,154,126,0.3)", borderTopColor:"#7C9A7E", borderRadius:"50%", animation:"spin 0.8s linear infinite" }}/>
           <div style={{ color:"#fff", fontSize:16 }}>Processing... 🌿</div>
+          {transcript && <div style={{ color:"rgba(255,255,255,0.7)", fontSize:13, fontStyle:"italic", marginTop:4 }}>"{transcript}"</div>}
         </div>
       )}
+
       {status==="search" && searchResult && (
         <div className="pop-enter" style={{ background:"#fff", borderRadius:20, padding:24, maxWidth:320, width:"90%", textAlign:"center" }}>
           <div style={{ fontSize:13, color:"#8C9BAB", marginBottom:10 }}>Here's what I found:</div>
           <div style={{ fontSize:18, fontWeight:700, color:"#2C3E50", marginBottom:20, lineHeight:1.4 }}>{searchResult}</div>
-          <button onClick={onClose} style={S.saveBtn}>Got it ✓</button>
+          <button onClick={resetAndClose} style={S.saveBtn}>Got it ✓</button>
         </div>
       )}
+
       {status==="preview" && parsed && (
         <div className="pop-enter" style={{ background:"#fff", borderRadius:20, padding:24, maxWidth:320, width:"90%", textAlign:"center" }}>
           <div style={{ fontSize:13, color:"#8C9BAB", marginBottom:8 }}>I heard:</div>
           <div style={{ fontSize:20, fontWeight:700, color:"#2C3E50", marginBottom:18 }}>{parsed.display}</div>
           <div style={{ fontSize:13, color:"#8C9BAB", marginBottom:14 }}>Does this look right?</div>
           <div style={{ display:"flex", gap:10 }}>
-            <button onClick={()=>{ onLog(parsed); showToast("Logged! 🌿"); onClose(); }} style={{ ...S.saveBtn, flex:1, marginTop:0 }}>Confirm ✓</button>
-            <button onClick={()=>{ openSheet(parsed.type); onClose(); }} style={{ flex:1, background:"#f5f5f5", color:"#2C3E50", border:"none", borderRadius:24, padding:"15px", fontSize:14, fontWeight:600, cursor:"pointer" }}>Edit</button>
+            <button onClick={()=>{ onLog(parsed); showToast("Logged! 🌿"); resetAndClose(); }} style={{ ...S.saveBtn, flex:1, marginTop:0 }}>Confirm ✓</button>
+            <button onClick={()=>{ openSheet(parsed.type); resetAndClose(); }} style={{ flex:1, background:"#f5f5f5", color:"#2C3E50", border:"none", borderRadius:24, padding:"15px", fontSize:14, fontWeight:600, cursor:"pointer" }}>Edit</button>
           </div>
         </div>
       )}
+
       {(status==="unparseable"||status==="error") && (
         <div style={{ color:"#fff", textAlign:"center", padding:24 }}>
           <div style={{ fontSize:44, marginBottom:14 }}>🤔</div>
-          <div style={{ fontSize:16, marginBottom:8 }}>I didn't quite catch that</div>
-          <div style={{ fontSize:13, color:"rgba(255,255,255,0.5)", marginBottom:20 }}>Try speaking clearly and wait a moment</div>
-          <div style={{ display:"flex", gap:10 }}>
-            <button onClick={()=>{ setStatus("listening"); setTranscript(""); canProcess.current=false; setTimeout(()=>{canProcess.current=true;},5000); }} style={{ background:"#7C9A7E", color:"#fff", border:"none", borderRadius:24, padding:"12px 20px", cursor:"pointer", fontWeight:700, fontSize:14 }}>Try again</button>
-            <button onClick={onClose} style={{ background:"rgba(255,255,255,0.15)", color:"#fff", border:"none", borderRadius:24, padding:"12px 20px", cursor:"pointer", fontWeight:600, fontSize:14 }}>Log manually</button>
+          <div style={{ fontSize:16, marginBottom:8 }}>{errorMsg || "I didn't quite catch that"}</div>
+          {transcript && <div style={{ color:"rgba(255,255,255,0.6)", fontSize:13, marginBottom:12, fontStyle:"italic" }}>I heard: "{transcript}"</div>}
+          <div style={{ display:"flex", gap:10, justifyContent:"center" }}>
+            <button onClick={retryFn} style={{ background:"#7C9A7E", color:"#fff", border:"none", borderRadius:24, padding:"12px 20px", cursor:"pointer", fontWeight:700, fontSize:14 }}>Try again</button>
+            <button onClick={resetAndClose} style={{ background:"rgba(255,255,255,0.15)", color:"#fff", border:"none", borderRadius:24, padding:"12px 20px", cursor:"pointer", fontWeight:600, fontSize:14 }}>Log manually</button>
           </div>
         </div>
       )}
+
       {status==="timeout" && (
         <div style={{ color:"#fff", textAlign:"center", padding:24 }}>
           <div style={{ fontSize:44, marginBottom:14 }}>⏱</div>
           <div style={{ fontSize:16, marginBottom:8 }}>Didn't catch that</div>
           <div style={{ fontSize:13, color:"rgba(255,255,255,0.5)", marginBottom:20 }}>Tap to try again or log manually</div>
-          <div style={{ display:"flex", gap:10 }}>
-            <button onClick={()=>{ setStatus("listening"); setTranscript(""); canProcess.current=false; setTimeout(()=>{canProcess.current=true;},5000); try{recRef.current?.start();}catch{} }} style={{ background:"#7C9A7E", color:"#fff", border:"none", borderRadius:24, padding:"12px 20px", cursor:"pointer", fontWeight:700, fontSize:14 }}>Try again</button>
-            <button onClick={onClose} style={{ background:"rgba(255,255,255,0.15)", color:"#fff", border:"none", borderRadius:24, padding:"12px 20px", cursor:"pointer", fontWeight:600, fontSize:14 }}>Log manually</button>
+          <div style={{ display:"flex", gap:10, justifyContent:"center" }}>
+            <button onClick={retryFn} style={{ background:"#7C9A7E", color:"#fff", border:"none", borderRadius:24, padding:"12px 20px", cursor:"pointer", fontWeight:700, fontSize:14 }}>Try again</button>
+            <button onClick={resetAndClose} style={{ background:"rgba(255,255,255,0.15)", color:"#fff", border:"none", borderRadius:24, padding:"12px 20px", cursor:"pointer", fontWeight:600, fontSize:14 }}>Log manually</button>
           </div>
         </div>
       )}
+
       {status==="unsupported" && (
         <div style={{ color:"#fff", textAlign:"center", padding:24 }}>
           <div style={{ fontSize:44, marginBottom:14 }}>🎙</div>
           <div style={{ fontSize:16, marginBottom:4 }}>Voice not supported in this browser</div>
           <div style={{ fontSize:13, color:"rgba(255,255,255,0.5)", marginBottom:20 }}>Try Chrome on Android or desktop</div>
-          <button onClick={onClose} style={{ background:"#7C9A7E", color:"#fff", border:"none", borderRadius:24, padding:"12px 28px", cursor:"pointer", fontWeight:700 }}>Close</button>
+          <button onClick={resetAndClose} style={{ background:"#7C9A7E", color:"#fff", border:"none", borderRadius:24, padding:"12px 28px", cursor:"pointer", fontWeight:700 }}>Close</button>
         </div>
       )}
     </div>
   );
 }
 
-// ─── MINI CHAT (Change H) ──────────────────────────────────
+// ─── MINI CHAT (Fix 9: proper conversation history) ──────
 function NestiChat({ onClose, age, corr }) {
-  const [messages, setMessages] = useState([
+  const [chatHistory, setChatHistory] = useState([
+    { role:"assistant", content:"Hi! Tell me what's on your mind about Maanvik 🌿" }
+  ]);
+  const [displayMessages, setDisplayMessages] = useState([
     { role:"nesti", text:"Hi! Tell me what's on your mind about Maanvik 🌿" }
   ]);
-  const [input,    setInput]    = useState("");
-  const [busy,     setBusy]     = useState(false);
-  const [exchanges, setExchanges] = useState(0);
-  const [logItems, setLogItems]  = useState(null);
-  const [checked,  setChecked]   = useState({});
+  const [input,     setInput]     = useState("");
+  const [busy,      setBusy]      = useState(false);
+  const [userCount, setUserCount] = useState(0);
+  const [logItems,  setLogItems]  = useState(null);
+  const [checked,   setChecked]   = useState({});
   const bottomRef = useRef(null);
 
-  useEffect(()=>{ bottomRef.current?.scrollIntoView({behavior:"smooth"}); },[messages]);
+  useEffect(()=>{ bottomRef.current?.scrollIntoView({behavior:"smooth"}); },[displayMessages]);
 
   const send = async () => {
     if (!input.trim() || busy) return;
     const userMsg = input.trim();
     setInput("");
-    setMessages(m=>[...m,{role:"user",text:userMsg}]);
+    const newCount = userCount + 1;
+    setUserCount(newCount);
+
+    const newUserEntry = { role:"user", content:userMsg };
+    const updatedHistory = [...chatHistory, newUserEntry];
+    setChatHistory(updatedHistory);
+    setDisplayMessages(m=>[...m, { role:"user", text:userMsg }]);
     setBusy(true);
-    const newCount = exchanges + 1;
-    setExchanges(newCount);
 
-    const history = messages.map(m=>`${m.role==="user"?"Parent":"nesti"}: ${m.text}`).join("\n");
-    const sys = `You are nesti, a warm supportive friend who is also a paediatrician. You are chatting with Maanvik's parent in a mobile app. Maanvik is ${age.months} months ${age.days} days old (${corr.weeks}w ${corr.days}d corrected), premature (30+4 weeks). Listen carefully, ask 1 gentle follow-up question per response. Keep responses under 60 words. After 3 exchanges, naturally wrap up. At the END of EVERY response, on a new line starting with "LOGWORTHY:", list any log-worthy facts as a pipe-separated list, or write "LOGWORTHY:none". Example: "LOGWORTHY:Maanvik unsettled after 3pm feed|Sleep interrupted twice last night"`;
+    const sys = `You are nesti, a warm supportive friend who is also a paediatrician. You are having a conversation with Maanvik's parent. Maanvik is ${age.months} months ${age.days} days old (${corr.weeks}w ${corr.days}d corrected), premature (30+4 weeks). Listen warmly and ask ONE gentle follow-up question per response. Keep each response under 60 words. Be conversational, not clinical. After the 3rd user message, naturally wrap up and identify any log-worthy observations. At the END of every response, on a new line starting with "LOGWORTHY:", list any log-worthy facts pipe-separated, or write "LOGWORTHY:none".`;
     const fb = `That's really helpful to know. How long has Maanvik been showing this? 🌿\n\nLOGWORTHY:none`;
-    const resp = await callNestiAI(sys, `Conversation so far:\n${history}\n\nParent: ${userMsg}`, fb);
 
-    // Parse out log-worthy items
-    const parts = resp.split(/\nLOGWORTHY:/i);
-    const cleanResp = parts[0].trim();
-    const logLine = parts[1]?.trim();
-    const items = logLine && logLine !== "none" ? logLine.split("|").filter(Boolean) : [];
+    try {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+          model:"claude-sonnet-4-20250514",
+          max_tokens:300,
+          system:sys,
+          messages: updatedHistory
+        })
+      });
+      const d = await res.json();
+      const resp = d.content?.[0]?.text || fb;
+      const parts = resp.split(/\nLOGWORTHY:/i);
+      const cleanResp = parts[0].trim();
+      const logLine = parts[1]?.trim();
+      const items = logLine && logLine!=="none" ? logLine.split("|").filter(Boolean) : [];
 
-    setBusy(false);
-    setMessages(m=>[...m,{role:"nesti",text:cleanResp}]);
-
-    if (newCount >= 3 || items.length > 0) {
+      const assistantEntry = { role:"assistant", content:cleanResp };
+      setChatHistory(h=>[...h, assistantEntry]);
+      setDisplayMessages(m=>[...m, { role:"nesti", text:cleanResp }]);
       if (items.length > 0) setLogItems(items);
+      else if (newCount >= 3 && !logItems) setLogItems([]);
+    } catch {
+      const cleanFb = fb.split(/\nLOGWORTHY:/i)[0].trim();
+      setChatHistory(h=>[...h, { role:"assistant", content:cleanFb }]);
+      setDisplayMessages(m=>[...m, { role:"nesti", text:cleanFb }]);
     }
-  };
-
-  const confirmSave = () => {
-    // In a real app we'd save to logs; here we just toast
-    onClose("Observations saved to Maanvik's log ✓");
+    setBusy(false);
   };
 
   return (
     <div style={{ position:"fixed", inset:0, zIndex:1100, display:"flex", flexDirection:"column", justifyContent:"flex-end" }}>
       <div style={{ position:"absolute", inset:0, background:"rgba(0,0,0,0.5)", backdropFilter:"blur(2px)" }} onClick={()=>onClose(null)}/>
       <div className="sheet-enter" style={{ position:"relative", background:"#FDFCFA", borderRadius:"24px 24px 0 0", height:"82vh", display:"flex", flexDirection:"column", maxWidth:430, width:"100%", margin:"0 auto" }}>
-        {/* header */}
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"18px 20px 12px", borderBottom:"1px solid #f0f0f0" }}>
           <div>
             <div style={{ fontSize:16, fontWeight:800, color:"#2C3E50" }}>Chat with nesti 🌿</div>
             <div style={{ fontSize:11, color:"#8C9BAB" }}>Your AI paediatric companion</div>
           </div>
-          <button onClick={()=>onClose(null)} style={{ background:"#f0f0f0", border:"none", borderRadius:"50%", width:32, height:32, cursor:"pointer", fontSize:15, display:"flex", alignItems:"center", justifyContent:"center" }}>✕</button>
+          <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+            {userCount >= 3 && <button onClick={()=>{ if(!logItems) setLogItems([]); }} style={{ background:"#f0f7f0", color:"#7C9A7E", border:"none", borderRadius:50, padding:"6px 12px", fontSize:12, fontWeight:700, cursor:"pointer" }}>Done</button>}
+            <button onClick={()=>onClose(null)} style={{ background:"#f0f0f0", border:"none", borderRadius:"50%", width:32, height:32, cursor:"pointer", fontSize:15, display:"flex", alignItems:"center", justifyContent:"center" }}>✕</button>
+          </div>
         </div>
-
-        {/* messages */}
         <div style={{ flex:1, overflowY:"auto", padding:"16px 16px 8px", display:"flex", flexDirection:"column", gap:10 }}>
-          {messages.map((m,i)=>(
+          {displayMessages.map((m,i)=>(
             <div key={i} style={{ display:"flex", justifyContent:m.role==="user"?"flex-end":"flex-start" }}>
               <div style={{
-                maxWidth:"80%", padding:"10px 14px", borderRadius: m.role==="user"?"18px 18px 4px 18px":"18px 18px 18px 4px",
+                maxWidth:"80%", padding:"10px 14px",
+                borderRadius:m.role==="user"?"18px 18px 4px 18px":"18px 18px 18px 4px",
                 background:m.role==="user"?"#7C9A7E":"#fff",
                 color:m.role==="user"?"#fff":"#2C3E50",
                 fontSize:14, lineHeight:1.5, fontWeight:m.role==="user"?600:400,
@@ -982,28 +1107,24 @@ function NestiChat({ onClose, age, corr }) {
               {[0,1,2].map(i=><div key={i} style={{ width:6, height:6, borderRadius:"50%", background:"#8C9BAB", animation:"skeleton 1s ease infinite", animationDelay:`${i*0.2}s` }}/>)}
             </div>
           )}
-
-          {/* log-worthy summary card */}
-          {logItems && (
+          {logItems !== null && (
             <div style={{ background:"#f0f7f0", borderRadius:14, padding:"14px", marginTop:8, border:"1.5px solid #7C9A7E33" }}>
-              <div style={{ fontWeight:700, fontSize:13, color:"#2C3E50", marginBottom:10 }}>Here's what I noted from our chat:</div>
+              <div style={{ fontWeight:700, fontSize:13, color:"#2C3E50", marginBottom:10 }}>Here's what I noted from our chat 📝</div>
+              {logItems.length === 0 && <div style={{ fontSize:13, color:"#8C9BAB" }}>Nothing specific to log — that was a great chat! 🌿</div>}
               {logItems.map((item,i)=>(
                 <label key={i} style={{ display:"flex", alignItems:"flex-start", gap:8, marginBottom:8, cursor:"pointer" }}>
-                  <input type="checkbox" checked={!!checked[i]} onChange={e=>setChecked(c=>({...c,[i]:e.target.checked}))}
-                    style={{ marginTop:2, accentColor:"#7C9A7E" }}/>
+                  <input type="checkbox" checked={!!checked[i]} onChange={e=>setChecked(c=>({...c,[i]:e.target.checked}))} style={{ marginTop:2, accentColor:"#7C9A7E" }}/>
                   <span style={{ fontSize:13, color:"#2C3E50", lineHeight:1.5 }}>{item}</span>
                 </label>
               ))}
-              <button onClick={confirmSave} style={{ ...S.saveBtn, marginTop:6, padding:"11px", fontSize:14 }}>
-                Save to log ✓
-              </button>
+              {logItems.length > 0 && (
+                <button onClick={()=>onClose("Observations saved to Maanvik's log ✓")} style={{ ...S.saveBtn, marginTop:6, padding:"11px", fontSize:14 }}>Save selected to Maanvik's log</button>
+              )}
             </div>
           )}
           <div ref={bottomRef}/>
         </div>
-
-        {/* input bar */}
-        <div style={{ padding:"10px 14px 20px", borderTop:"1px solid #f0f0f0", display:"flex", gap:8, background:"#fff", borderRadius:"0 0 0 0" }}>
+        <div style={{ padding:"10px 14px 20px", borderTop:"1px solid #f0f0f0", display:"flex", gap:8, background:"#fff" }}>
           <input value={input} onChange={e=>setInput(e.target.value)}
             onKeyDown={e=>{ if(e.key==="Enter") send(); }}
             placeholder="Type something..." disabled={busy}
@@ -1011,7 +1132,7 @@ function NestiChat({ onClose, age, corr }) {
           <button onClick={send} disabled={!input.trim()||busy} style={{
             width:44, height:44, borderRadius:"50%", background:input.trim()?"#7C9A7E":"#e8e8e8",
             border:"none", cursor:input.trim()?"pointer":"default", color:"#fff", fontSize:18,
-            display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, transition:"background 0.2s"
+            display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0
           }}>→</button>
         </div>
       </div>
@@ -1019,14 +1140,14 @@ function NestiChat({ onClose, age, corr }) {
   );
 }
 
-// ─── 14-DAY TREND DATA ────────────────────────────────────
-const TREND14 = {
-  feed:    [520,490,560,430,510,580,495,540,470,555,500,480,560,320],
-  sleep:   [13.5,14.2,12.8,15.0,14.8,13.2,14.5,12.5,15.2,14.0,13.8,14.6,15.1,3.5],
-  diaper:  [6,5,6,4,6,6,5,7,6,5,6,6,5,4],
-  med:     [6,6,5,6,6,5,6,6,6,6,5,6,6,2],
+// ─── 7-DAY TREND DATA (Fix 2) ────────────────────────────
+const TREND7 = {
+  feed:   [495,540,470,555,500,480,320],
+  sleep:  [14.5,12.5,15.2,14.0,13.8,14.6,3.5],
+  diaper: [6,5,6,5,6,6,4],
+  med:    [6,6,6,6,5,6,2],
 };
-const DAYS14 = ["M","T","W","T","F","S","S","M","T","W","T","F","S","T"];
+const DAYS7 = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
 
 function FlipCard({ front, back, warn }) {
   const [flipped, setFlipped] = useState(false);
@@ -1046,16 +1167,19 @@ function FlipCard({ front, back, warn }) {
 }
 
 // ─── SCREEN 1: TODAY ──────────────────────────────────────
-function TodayScreen({ logs, onLog, onDeleteLog, showToast }) {
-  const [sheet,       setSheet]       = useState(null);
-  const [showAll,     setShowAll]     = useState(false);
-  const [obsText,     setObsText]     = useState(null);
-  const [obsLoading,  setObsLoading]  = useState(true);
-  const [obsCollapsed,setObsCollapsed]= useState(false);
-  const [chatOpen,    setChatOpen]    = useState(false);
-  const [confetti,    setConfetti]    = useState(false);
-  const [vol,         setVol]         = useState(0.4);
-  const [waSheet,     setWaSheet]     = useState(false);
+function TodayScreen({ logs, onLog, onDeleteLog, showToast, clinicNum, setClinicNum }) {
+  const [sheet,        setSheet]        = useState(null);
+  const [showAll,      setShowAll]      = useState(false);
+  const [obsText,      setObsText]      = useState(null);
+  const [obsLoading,   setObsLoading]   = useState(true);
+  const [obsCollapsed, setObsCollapsed] = useState(false);
+  const [chatOpen,     setChatOpen]     = useState(false);
+  const [confetti,     setConfetti]     = useState(false);
+  const [vol,          setVol]          = useState(0.4);
+  const [waSheet,      setWaSheet]      = useState(false);
+  const [deleteConfirm,setDeleteConfirm]= useState(null); // id to confirm delete
+  const [clinicSheet2, setClinicSheet2] = useState(false); // Fix 6: call clinic sheet
+  const [tempClinic,   setTempClinic]   = useState("");
   const { playing, playSound, setVolume } = useAudioEngine();
   const logsRef = useRef(logs);
   useEffect(()=>{ logsRef.current = logs; },[logs]);
@@ -1081,7 +1205,7 @@ function TodayScreen({ logs, onLog, onDeleteLog, showToast }) {
     const [eh,em]=sl.end.split(":").map(Number);
     return s+Math.max(0,(eh*60+em)-(sh*60+sm));
   },0);
-  const sleepHrs = totalSleepMin/60;
+  const sleepHrs  = totalSleepMin/60;
   const feedPct   = Math.min(100,Math.round((totalMl/560)*100));
   const sleepPct  = Math.min(100,Math.round((sleepHrs/14)*100));
   const diaperPct = Math.min(100,Math.round((diapers.length/6)*100));
@@ -1090,15 +1214,14 @@ function TodayScreen({ logs, onLog, onDeleteLog, showToast }) {
 
   useEffect(()=>{ if(allGreen){ setConfetti(true); setTimeout(()=>setConfetti(false),3200); } },[allGreen]);
 
-  // Change G: AI refresh uses logsRef (always current)
   const loadObservations = useCallback(() => {
     setObsLoading(true); setObsText(null);
-    const curLogs = logsRef.current;
+    const curLogs   = logsRef.current;
     const curFeeds  = curLogs.filter(l=>l.type==="feed");
     const curSleeps = curLogs.filter(l=>l.type==="sleep");
     const curDiapers= curLogs.filter(l=>l.type==="diaper");
     const curMeds   = curLogs.filter(l=>l.type==="med");
-    const curMl = curFeeds.reduce((s,f)=>s+(parseFloat(f.volume)||0),0);
+    const curMl     = curFeeds.reduce((s,f)=>s+(parseFloat(f.volume)||0),0);
     const curSleepMin = curSleeps.reduce((s,sl)=>{
       if(sl.end==="now") return s+60;
       const [sh,sm]=sl.start.split(":").map(Number);
@@ -1106,7 +1229,7 @@ function TodayScreen({ logs, onLog, onDeleteLog, showToast }) {
       return s+Math.max(0,(eh*60+em)-(sh*60+sm));
     },0);
     const curSleepHrs = curSleepMin/60;
-    const curFeedPct = Math.min(100,Math.round((curMl/560)*100));
+    const curFeedPct  = Math.min(100,Math.round((curMl/560)*100));
     const sys = `You are nesti, a warm AI paediatric care companion for parents of Maanvik, a premature baby born at 30+4 weeks, now ${age.months} months ${age.days} days old (${corr.weeks} weeks ${corr.days} days corrected). Analyse today's logs. Respond in this EXACT format:\n🍼 Feeding\n• [bullet]\n💤 Sleep\n• [bullet]\n🌟 Overall\n• [bullet]\n[one warm italic encouraging line]\nMax 10 lines. Be specific to actual numbers.`;
     const msg = `Feeds: ${curMl}ml (${curFeeds.length} sessions). Sleep: ${curSleepHrs.toFixed(1)}hrs. Diapers: ${curDiapers.length}. Meds: ${curMeds.length}.`;
     const fb  = `🍼 Feeding\n• ${curMl}ml logged so far — ${curFeedPct<50?"building toward":"on track for"} daily target\n• Good feed spacing observed\n\n💤 Sleep\n• ${curSleepHrs.toFixed(1)}hrs logged — steady progress\n• Settled quality is encouraging\n\n🌟 Overall\n• Great rhythm today — keep going!\n\n*You're doing beautifully, Maanvik's Dad. Every log matters. 🌿*`;
@@ -1115,31 +1238,32 @@ function TodayScreen({ logs, onLog, onDeleteLog, showToast }) {
 
   useEffect(()=>{ loadObservations(); },[]);
 
-  // Change A: Smart nudge logic
-  const nudge = (()=>{
-    const expectedMl = (hour/24)*560*0.5;
-    const expectedSleep = (hour/24)*14;
+  // Fix 3: nudge re-evaluates on every log change via useMemo-like inline compute
+  const evaluateNudge = (feeds, sleeps, diapers, meds, totalMl, sleepHrs, hour) => {
+    const expectedMl      = (hour/24)*560*0.5;
+    const expectedSleep   = (hour/24)*14;
     const expectedDiapers = Math.floor((hour/24)*6);
-    const hasSoiled = diapers.some(d=>d.diaperType==="soiled"||d.diaperType==="both");
-
-    // RED critical
-    if (!hasSoiled && diapers.length > 0) return { level:"red", icon:"🩲", title:"No soiled diaper in 24hrs", sub:"Worth keeping an eye on", action:"diaper" };
-    if (totalMl < expectedMl * 0.5 && hour > 6) return { level:"red", icon:"🍼", title:`Only ${totalMl}ml logged — ${Math.round(expectedMl)}ml expected by now`, sub:`Feed Maanvik now`, action:"feed" };
-    if (sleepHrs < 14*0.3 && hour >= 20) return { level:"red", icon:"💤", title:`Only ${sleepHrs.toFixed(1)}hrs sleep logged`, sub:`WHO target: 14hrs — running very low`, action:"sleep" };
-    // AMBER
-    if (totalMl < expectedMl && hour > 8) return { level:"amber", icon:"🍼", title:`${totalMl}ml logged, ~${Math.round(expectedMl)}ml expected by ${hour}:00`, sub:"Feeding a little behind schedule", action:"feed" };
-    if (sleepHrs < expectedSleep * 0.5 && hour >= 18) return { level:"amber", icon:"💤", title:`${sleepHrs.toFixed(1)}hrs logged, ${expectedSleep.toFixed(1)}hrs expected by now`, sub:"Sleep is running a bit low", action:"sleep" };
-    if (diapers.length < expectedDiapers - 1 && hour > 10) return { level:"amber", icon:"🩲", title:`${diapers.length} diapers vs ${expectedDiapers} expected`, sub:"A couple behind expected count", action:"diaper" };
-    if (meds.length < 4 && hour >= 18) return { level:"amber", icon:"💊", title:`${6-meds.length} medicine doses still pending today`, sub:"Tap to log a dose", action:"med" };
-    // GREEN
+    const hasSoiled       = diapers.some(d=>d.diaperType==="soiled"||d.diaperType==="both");
+    if (!hasSoiled && diapers.length > 0) return { level:"red",   icon:"🩲", title:"No soiled diaper in 24hrs", sub:"Worth keeping an eye on", action:"diaper" };
+    if (totalMl < expectedMl*0.5 && hour>6) return { level:"red",   icon:"🍼", title:`Only ${totalMl}ml logged — ${Math.round(expectedMl)}ml expected by now`, sub:"Feed Maanvik now", action:"feed" };
+    if (sleepHrs < 14*0.3 && hour>=20)      return { level:"red",   icon:"💤", title:`Only ${sleepHrs.toFixed(1)}hrs sleep logged`, sub:"WHO target: 14hrs — running very low", action:"sleep" };
+    if (totalMl < expectedMl && hour>8)     return { level:"amber", icon:"🍼", title:`${totalMl}ml logged, ~${Math.round(expectedMl)}ml expected by ${hour}:00`, sub:"Feeding a little behind schedule", action:"feed" };
+    if (sleepHrs < expectedSleep*0.5 && hour>=18) return { level:"amber", icon:"💤", title:`${sleepHrs.toFixed(1)}hrs logged, ${expectedSleep.toFixed(1)}hrs expected by now`, sub:"Sleep is running a bit low", action:"sleep" };
+    if (diapers.length < expectedDiapers-1 && hour>10) return { level:"amber", icon:"🩲", title:`${diapers.length} diapers vs ${expectedDiapers} expected`, sub:"A couple behind expected count", action:"diaper" };
+    if (meds.length < 4 && hour>=18)        return { level:"amber", icon:"💊", title:`${6-meds.length} medicine doses still pending today`, sub:"Tap to log a dose", action:"med" };
     return { level:"green", icon:"🌿", title:"Maanvik's doing great today!", sub:"All targets on track", action:null };
-  })();
+  };
+  const nudge = evaluateNudge(feeds, sleeps, diapers, meds, totalMl, sleepHrs, hour);
 
-  const nudgeColors = { red:{ border:"#E05C5C", bg:"#FEF2F2", iconBg:"#fce8e8", text:"#c0392b" }, amber:{ border:"#F5A623", bg:"#FFFBF0", iconBg:"#FFF3D0", text:"#8a5700" }, green:{ border:"#7C9A7E", bg:"#F0F7F0", iconBg:"#e0f0e0", text:"#2d6e31" } };
+  const nudgeColors = {
+    red:   { border:"#E05C5C", bg:"#FEF2F2", iconBg:"#fce8e8", text:"#c0392b" },
+    amber: { border:"#F5A623", bg:"#FFFBF0", iconBg:"#FFF3D0", text:"#8a5700" },
+    green: { border:"#7C9A7E", bg:"#F0F7F0", iconBg:"#e0f0e0", text:"#2d6e31" },
+  };
   const nc = nudgeColors[nudge.level];
 
-  const logIcon  = { feed:"🍼", sleep:"💤", diaper:"🩲", weight:"⚖️", med:"💊" };
-  const logColor = { feed:"#E8967A", sleep:"#7C9A7E", diaper:"#6bb5d6", weight:"#c67ad4", med:"#F5A623" };
+  const logIcon   = { feed:"🍼", sleep:"💤", diaper:"🩲", weight:"⚖️", med:"💊" };
+  const logColor  = { feed:"#E8967A", sleep:"#7C9A7E", diaper:"#6bb5d6", weight:"#c67ad4", med:"#F5A623" };
   const logDetail = l => {
     if(l.type==="feed")   return `${l.volume}ml · ${l.feedType}`;
     if(l.type==="sleep")  return `${l.start}–${l.end} · ${l.quality}`;
@@ -1151,7 +1275,6 @@ function TodayScreen({ logs, onLog, onDeleteLog, showToast }) {
 
   const wamsg = `Hi Dr. Khanna, sharing Maanvik's update:\n• Age: ${age.months} months ${age.days} days (${corr.weeks}w ${corr.days}d corrected)\n• Weight: 4.70kg | Height: 59cm | HC: 37cm\n• Today's feeds: ${totalMl}ml total (${feeds.length} feeds)\n• Sleep: ${sleepHrs.toFixed(1)}hrs\n• Diapers: ${diapers.length} changes\n• Medicines: ${meds.length} of 6 doses given\n• Any concerns: [tap to add]`;
 
-  // Change J: Updated sounds
   const sounds = [
     {id:"ocean",icon:"🌊",label:"Ocean"},
     {id:"white",icon:"🤍",label:"White"},
@@ -1159,9 +1282,13 @@ function TodayScreen({ logs, onLog, onDeleteLog, showToast }) {
     {id:"om",   icon:"🕉",label:"Om"},
   ];
 
-  // Change C: flip card data
-  const makeBarData = (key, target) => TREND14[key].map((v,i)=>({ name:DAYS14[i], v, good: key==="feed"?(v>=target):key==="sleep"?(v>=target):key==="diaper"?(v>=4):v>=5 }));
-  const feedAvg7 = TREND14.feed.slice(-7).reduce((a,b)=>a+b,0)/7;
+  // Fix 2: 7-day bar data
+  const makeBarData = (key, target) => TREND7[key].map((v,i)=>({
+    name: DAYS7[i], v,
+    today: i === TREND7[key].length-1,
+    good: key==="feed"?(v>=target):key==="sleep"?(v>=target):key==="diaper"?(v>=4):v>=5
+  }));
+  const feedAvg7 = TREND7.feed.slice(0,6).reduce((a,b)=>a+b,0)/6;
 
   const cardDefs = [
     { icon:"🍼", label:"Feeds",    value:`${totalMl}ml`,  sub:`${feedPct}% of 560ml`, pct:feedPct, warn:feedPct<50, trendKey:"feed", target:560, showAvg:true },
@@ -1173,11 +1300,17 @@ function TodayScreen({ logs, onLog, onDeleteLog, showToast }) {
   const recentLogs = [...logs].reverse().slice(0,4);
   const allLogs    = [...logs].reverse();
 
+  // Fix 6: Call clinic logic
+  const handleCallClinic = () => {
+    if (clinicNum) window.open(`tel:${clinicNum}`);
+    else setClinicSheet2(true);
+  };
+
   return (
     <div style={{ paddingBottom:20 }}>
       <Confetti active={confetti}/>
 
-      {/* Change A: Smart nudge card */}
+      {/* Nudge — reacts to logs via inline evaluation (Fix 3) */}
       <div onClick={()=>nudge.action&&setSheet(nudge.action)} style={{
         background:nc.bg, borderLeft:`4px solid ${nc.border}`, borderRadius:12, padding:"12px 14px",
         marginBottom:14, display:"flex", alignItems:"center", gap:12,
@@ -1197,11 +1330,9 @@ function TodayScreen({ logs, onLog, onDeleteLog, showToast }) {
       </div>
 
       <div style={S.secLabel}>today's checklist</div>
-
-      {/* Change C: Flip cards with SVG mini bar charts */}
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10, marginBottom:12 }}>
         {cardDefs.map(c=>{
-          const barData = makeBarData(c.trendKey, c.target).map((d,i)=>({
+          const barData = makeBarData(c.trendKey, c.target).map(d=>({
             ...d, avg: c.showAvg ? feedAvg7 : undefined
           }));
           const front = (
@@ -1219,8 +1350,8 @@ function TodayScreen({ logs, onLog, onDeleteLog, showToast }) {
           );
           const back = (
             <div style={{ height:"100%", display:"flex", flexDirection:"column", justifyContent:"flex-end" }}>
-              <div style={{ fontSize:10, color:"#8C9BAB", fontWeight:700, marginBottom:2, paddingLeft:4 }}>{c.label} · 14 days</div>
-              <SVGMiniBarChart data={barData} height={82}/>
+              <div style={{ fontSize:9, color:"#8C9BAB", fontWeight:700, marginBottom:1, paddingLeft:4 }}>{c.label} · 7 days</div>
+              <SVGMiniBarChart data={barData} height={88}/>
             </div>
           );
           return <FlipCard key={c.label} front={front} back={back} warn={c.warn}/>;
@@ -1233,20 +1364,18 @@ function TodayScreen({ logs, onLog, onDeleteLog, showToast }) {
         </div>
       )}
 
-      {/* Change D: Streak section removed */}
-
-      {/* quick log */}
+      {/* Fix 5: 4-button QL bar, no Weight */}
       <div style={S.secLabel}>log it quick</div>
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(5,1fr)", gap:6, marginBottom:16 }}>
-        {[["🍼","Feed","feed"],["😴","Sleep","sleep"],["🩹","Diaper","diaper"],["⚖️","Weight","weight"],["💊","Med","med"]].map(([ico,lbl,type])=>(
-          <button key={type} onClick={()=>setSheet(type)} style={{ background:"#fff", border:"1.5px solid #f0f0f0", borderRadius:14, padding:"10px 4px", cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", gap:4, boxShadow:"0 1px 8px rgba(0,0,0,0.04)" }}>
-            <span style={{ fontSize:22 }}>{ico}</span>
-            <span style={{ fontSize:10, fontWeight:600, color:"#8C9BAB" }}>{lbl}</span>
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:8, marginBottom:16 }}>
+        {[["🍼","Feed","feed"],["😴","Sleep","sleep"],["🩹","Diaper","diaper"],["💊","Med","med"]].map(([ico,lbl,type])=>(
+          <button key={type} onClick={()=>setSheet(type)} style={{ background:"#fff", border:"1.5px solid #f0f0f0", borderRadius:14, padding:"12px 4px", cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", gap:4, boxShadow:"0 1px 8px rgba(0,0,0,0.04)" }}>
+            <span style={{ fontSize:24 }}>{ico}</span>
+            <span style={{ fontSize:11, fontWeight:600, color:"#8C9BAB" }}>{lbl}</span>
           </button>
         ))}
       </div>
 
-      {/* timeline */}
+      {/* Timeline */}
       <div style={S.secLabel}>today's logs</div>
       <div style={{ ...S.card, marginBottom:12, padding:0, overflow:"hidden" }}>
         {recentLogs.length===0 && <div style={{ padding:"20px 16px", color:"#8C9BAB", textAlign:"center", fontSize:14 }}>No logs yet — use Quick Log above! 👆</div>}
@@ -1258,7 +1387,7 @@ function TodayScreen({ logs, onLog, onDeleteLog, showToast }) {
               <div style={{ fontSize:12, color:"#8C9BAB" }}>{logDetail(l)}</div>
             </div>
             <div style={{ fontSize:11, color:"#8C9BAB", marginRight:4 }}>{l._relTime||"just now"}</div>
-            <button onClick={()=>onDeleteLog(l._id)} style={{ background:"none", border:"none", cursor:"pointer", color:"#ddd", fontSize:15, padding:0 }}>🗑</button>
+            <button onClick={()=>onDeleteLog(l._id)} style={{ background:"none", border:"none", cursor:"pointer", color:"#ccc", fontSize:15, padding:0 }}>🗑</button>
           </div>
         ))}
       </div>
@@ -1268,7 +1397,7 @@ function TodayScreen({ logs, onLog, onDeleteLog, showToast }) {
         </button>
       )}
 
-      {/* Change J: Updated sounds */}
+      {/* Sounds */}
       <div style={{ ...S.card, marginBottom:12 }}>
         <div style={S.secLabel}>🎵 soothing sounds</div>
         <div style={{ display:"flex", gap:6, marginBottom:12 }}>
@@ -1290,17 +1419,21 @@ function TodayScreen({ logs, onLog, onDeleteLog, showToast }) {
           style={{ width:"100%", accentColor:"#7C9A7E", cursor:"pointer" }}/>
       </div>
 
-      {/* Change I: Observations with collapse/expand, 2 CTAs */}
+      {/* Fix 14: Collapsed observations with border */}
       {obsCollapsed ? (
-        <div onClick={()=>setObsCollapsed(false)} style={{ ...S.card, marginBottom:12, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"space-between", padding:"12px 16px" }}>
-          <div style={S.secLabel}>nesti's observations 🌿</div>
-          <span style={{ color:"#7C9A7E", fontSize:16 }}>↓</span>
+        <div onClick={()=>setObsCollapsed(false)} style={{
+          background:"#fff", border:"1.5px solid #7C9A7E", borderRadius:12,
+          marginBottom:12, cursor:"pointer", display:"flex", alignItems:"center",
+          justifyContent:"space-between", padding:"0 16px", height:44,
+          boxShadow:"0 1px 4px rgba(0,0,0,0.06)"
+        }}>
+          <div style={{ fontSize:12, fontWeight:700, color:"#2C3E50" }}>🌿 nesti's observations</div>
+          <span style={{ color:"#8C9BAB", fontSize:13 }}>↓ expand</span>
         </div>
       ) : (
         <div style={{ ...S.card, marginBottom:12 }}>
           <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
             <div style={S.secLabel}>nesti's observations 🌿</div>
-            {/* Change G: Refresh uses loadObservations which reads logsRef */}
             <button onClick={loadObservations} style={{ background:"none", border:"none", color:"#7C9A7E", fontSize:12, fontWeight:700, cursor:"pointer" }}>↻ Refresh</button>
           </div>
           {obsLoading ? (
@@ -1310,18 +1443,16 @@ function TodayScreen({ logs, onLog, onDeleteLog, showToast }) {
           ) : (
             <div style={{ fontSize:13, color:"#2C3E50", lineHeight:1.75, whiteSpace:"pre-line" }}>{obsText}</div>
           )}
-          {/* Change I: 2 CTAs only, no Ask button */}
           <div style={{ display:"flex", gap:8, marginTop:14 }}>
             <button onClick={()=>{ setObsCollapsed(true); showToast("nesti is happy to hear that 🌿"); }}
               style={{ flex:1, background:"#7C9A7E", color:"#fff", border:"none", borderRadius:50, padding:"11px 6px", fontSize:13, fontWeight:700, cursor:"pointer" }}>Looks good ✓</button>
-            {/* Change H: Opens mini chat */}
             <button onClick={()=>setChatOpen(true)}
               style={{ flex:1, background:"#E8967A", color:"#fff", border:"none", borderRadius:50, padding:"11px 6px", fontSize:13, fontWeight:700, cursor:"pointer" }}>I want to share something 💬</button>
           </div>
         </div>
       )}
 
-      {/* doctor card */}
+      {/* Fix 6 + 7: Doctor card with updated buttons */}
       <div style={{ ...S.card, marginBottom:12 }}>
         <div style={S.secLabel}>Maanvik's Doctor 👨‍⚕️</div>
         <div style={{ display:"flex", alignItems:"center", gap:14, marginBottom:14 }}>
@@ -1332,31 +1463,47 @@ function TodayScreen({ logs, onLog, onDeleteLog, showToast }) {
           </div>
         </div>
         <div style={{ display:"flex", gap:10 }}>
-          <a href="tel:+91" style={{ flex:1, background:"#f0f7f0", color:"#7C9A7E", borderRadius:12, padding:"11px 8px", fontSize:13, fontWeight:700, cursor:"pointer", textDecoration:"none", textAlign:"center" }}>📞 Call Clinic</a>
-          <button onClick={()=>setWaSheet(true)} style={{ flex:1, background:"#f0f7f0", color:"#7C9A7E", border:"none", borderRadius:12, padding:"11px 8px", fontSize:13, fontWeight:700, cursor:"pointer" }}>💬 WhatsApp Update</button>
+          {/* Fix 6: Call clinic with 2-step */}
+          <button onClick={handleCallClinic} style={{ flex:1, background:"#f0f7f0", color:"#7C9A7E", border:"none", borderRadius:12, padding:"11px 8px", fontSize:13, fontWeight:700, cursor:"pointer" }}>📞 Call Clinic</button>
+          {/* Fix 7: WhatsApp Doc with icon */}
+          <button onClick={()=>setWaSheet(true)} style={{ flex:1, background:"#f0f7f0", color:"#7C9A7E", border:"none", borderRadius:12, padding:"11px 8px", fontSize:13, fontWeight:700, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:6 }}>
+            <svg viewBox="0 0 24 24" width="15" height="15" fill="#25D366"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+            WhatsApp Doc
+          </button>
         </div>
       </div>
 
-      {/* sheets */}
+      {/* QL sheets */}
       <BottomSheet open={!!sheet} onClose={()=>setSheet(null)} title={
-        sheet==="feed"?"🍼 Log Feed":sheet==="sleep"?"💤 Log Sleep":sheet==="diaper"?"🩲 Log Diaper":sheet==="weight"?"⚖️ Log Weight":"💊 Log Medicine"
+        sheet==="feed"?"🍼 Log Feed":sheet==="sleep"?"💤 Log Sleep":sheet==="diaper"?"🩲 Log Diaper":"💊 Log Medicine"
       }>
         {sheet==="feed"   && <FeedForm   onSave={l=>{ onLog(l); setSheet(null); showToast("Feed logged 🍼"); }}/>}
         {sheet==="sleep"  && <SleepForm  onSave={l=>{ onLog(l); setSheet(null); showToast("Sleep logged 💤"); }}/>}
         {sheet==="diaper" && <DiaperForm onSave={l=>{ onLog(l); setSheet(null); showToast("Diaper logged 🩲"); }}/>}
-        {sheet==="weight" && <WeightForm onSave={l=>{ onLog(l); setSheet(null); showToast("Weight logged ⚖️"); }}/>}
         {sheet==="med"    && <MedForm    onSave={l=>{ onLog(l); setSheet(null); showToast("Medicine logged 💊"); }}/>}
       </BottomSheet>
 
+      {/* Fix 4: Show all logs with delete per entry */}
       <BottomSheet open={showAll} onClose={()=>setShowAll(false)} title={`All logs (${logs.length})`}>
         {allLogs.map((l,i)=>(
-          <div key={l._id} style={{ display:"flex", alignItems:"center", padding:"10px 0", borderBottom:i<allLogs.length-1?"1px solid #f5f5f5":"none", gap:12 }}>
-            <div style={{ width:32, height:32, borderRadius:"50%", background:logColor[l.type]+"22", display:"flex", alignItems:"center", justifyContent:"center", fontSize:15 }}>{logIcon[l.type]}</div>
-            <div style={{ flex:1 }}>
-              <div style={{ fontWeight:700, fontSize:13, color:"#2C3E50" }}>{l.type.charAt(0).toUpperCase()+l.type.slice(1)}</div>
-              <div style={{ fontSize:12, color:"#8C9BAB" }}>{logDetail(l)}</div>
-            </div>
-            <div style={{ fontSize:11, color:"#8C9BAB" }}>{l._relTime||"just now"}</div>
+          <div key={l._id}>
+            {deleteConfirm===l._id ? (
+              <div style={{ display:"flex", alignItems:"center", padding:"10px 0", gap:10, borderBottom:i<allLogs.length-1?"1px solid #f5f5f5":"none" }}>
+                <div style={{ fontSize:13, color:"#E05C5C", flex:1 }}>Delete this log?</div>
+                <button onClick={()=>{ onDeleteLog(l._id); setDeleteConfirm(null); }} style={{ background:"#E05C5C", color:"#fff", border:"none", borderRadius:50, padding:"5px 14px", fontSize:12, fontWeight:700, cursor:"pointer" }}>Yes</button>
+                <button onClick={()=>setDeleteConfirm(null)} style={{ background:"#f0f0f0", color:"#2C3E50", border:"none", borderRadius:50, padding:"5px 14px", fontSize:12, cursor:"pointer" }}>No</button>
+              </div>
+            ) : (
+              <div style={{ display:"flex", alignItems:"center", padding:"10px 0", borderBottom:i<allLogs.length-1?"1px solid #f5f5f5":"none", gap:12 }}>
+                <div style={{ width:32, height:32, borderRadius:"50%", background:logColor[l.type]+"22", display:"flex", alignItems:"center", justifyContent:"center", fontSize:15 }}>{logIcon[l.type]}</div>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontWeight:700, fontSize:13, color:"#2C3E50" }}>{l.type.charAt(0).toUpperCase()+l.type.slice(1)}</div>
+                  <div style={{ fontSize:12, color:"#8C9BAB" }}>{logDetail(l)}</div>
+                </div>
+                <div style={{ fontSize:11, color:"#8C9BAB" }}>{l._relTime||"just now"}</div>
+                <button onClick={()=>setDeleteConfirm(l._id)} style={{ background:"none", border:"none", cursor:"pointer", color:"#ccc", fontSize:15, padding:0 }}>🗑</button>
+              </div>
+            )}
           </div>
         ))}
       </BottomSheet>
@@ -1369,7 +1516,20 @@ function TodayScreen({ logs, onLog, onDeleteLog, showToast }) {
         </div>
       </BottomSheet>
 
-      {/* Change H: Mini AI chat */}
+      {/* Fix 6: Call clinic 2-step sheet */}
+      <BottomSheet open={clinicSheet2} onClose={()=>setClinicSheet2(false)} title="What's Dr. Khanna's clinic number?">
+        <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+          <input type="tel" value={tempClinic} onChange={e=>setTempClinic(e.target.value)}
+            placeholder="+91 98xxx xxxxx" style={{ ...S.input, fontSize:18, textAlign:"center" }}/>
+          <button onClick={()=>{
+            setClinicNum(tempClinic);
+            setClinicSheet2(false);
+            showToast("Number saved ✓");
+            setTimeout(()=>window.open(`tel:${tempClinic}`), 300);
+          }} style={S.saveBtn}>Save & Call →</button>
+        </div>
+      </BottomSheet>
+
       {chatOpen && <NestiChat onClose={(msg)=>{ setChatOpen(false); if(msg) showToast(msg); }} age={age} corr={corr}/>}
     </div>
   );
@@ -1405,49 +1565,66 @@ function interpolateWHO(table, age) {
   return table[lo] + t*(table[hi]-table[lo]);
 }
 
-function getPctBand(val, who50) {
+// Fix 15: single percentile value (not range) via ratio mapping
+function getPctSingle(val, who50) {
   const ratio = val / who50;
-  if (ratio >= 1.135) return "97th+";
-  if (ratio >= 1.068) return "75th–97th";
-  if (ratio >= 1.000) return "50th–75th";
-  if (ratio >= 0.932) return "25th–50th";
-  if (ratio >= 0.875) return "10th–25th";
-  return "below 10th";
+  if (ratio >= 1.15) return "75th";
+  if (ratio >= 1.07) return "65th";
+  if (ratio >= 1.00) return "50th";
+  if (ratio >= 0.93) return "42nd";
+  if (ratio >= 0.86) return "35th";
+  if (ratio >= 0.79) return "25th";
+  if (ratio >= 0.72) return "15th";
+  return "10th";
 }
 
-function computePercentiles(ageMode, age, corr) {
-  const latestW  = 4.70, latestH = 59, latestHC = 37;
+function ordinalSuffix(n) {
+  const s = String(n);
+  if (s.endsWith("11")||s.endsWith("12")||s.endsWith("13")) return "th";
+  if (s.endsWith("1")) return "st";
+  if (s.endsWith("2")) return "nd";
+  if (s.endsWith("3")) return "rd";
+  return "th";
+}
+
+// Fix 10+15: computePercentiles takes live latest measurements from state
+function computePercentiles(ageMode, age, corr, latestW, latestH, latestHC) {
   if (ageMode === "corrected") {
-    const corrWeeks = corr.weeks; // 5w 3d → use 5
+    const corrWeeks = corr.weeks;
     const w50  = interpolateWHO(WHO_W_WEEKS,  corrWeeks);
     const h50  = interpolateWHO(WHO_H_WEEKS,  corrWeeks);
     const hc50 = interpolateWHO(WHO_HC_WEEKS, corrWeeks);
     return {
-      weight: { band: getPctBand(latestW,  w50),  val: `4.70 kg · corrected`, ref: w50.toFixed(2)+"kg ref" },
-      height: { band: getPctBand(latestH,  h50),  val: `59 cm · corrected`,   ref: h50.toFixed(1)+"cm ref" },
-      hc:     { band: getPctBand(latestHC, hc50), val: `37 cm · corrected`,   ref: hc50.toFixed(1)+"cm ref" },
+      weight: { pct: getPctSingle(latestW,  w50),  val: `${latestW.toFixed(2)} kg · corrected`,  ref: w50.toFixed(2)+"kg 50th" },
+      height: { pct: getPctSingle(latestH,  h50),  val: `${latestH.toFixed(1)} cm · corrected`,  ref: h50.toFixed(1)+"cm 50th" },
+      hc:     { pct: getPctSingle(latestHC, hc50), val: `${latestHC.toFixed(1)} cm · corrected`, ref: hc50.toFixed(1)+"cm 50th" },
     };
   } else {
-    const chronoMonths = age.months; // 3m 11d → use 3
+    const chronoMonths = age.months;
     const w50  = interpolateWHO(WHO_W_MONTHS,  chronoMonths);
     const h50  = interpolateWHO(WHO_H_MONTHS,  chronoMonths);
     const hc50 = interpolateWHO(WHO_HC_MONTHS, chronoMonths);
     return {
-      weight: { band: getPctBand(latestW,  w50),  val: `4.70 kg · chrono`,    ref: w50.toFixed(2)+"kg ref" },
-      height: { band: getPctBand(latestH,  h50),  val: `59 cm · chrono`,      ref: h50.toFixed(1)+"cm ref" },
-      hc:     { band: getPctBand(latestHC, hc50), val: `37 cm · chrono`,      ref: hc50.toFixed(1)+"cm ref" },
+      weight: { pct: getPctSingle(latestW,  w50),  val: `${latestW.toFixed(2)} kg · chrono`,  ref: w50.toFixed(2)+"kg 50th" },
+      height: { pct: getPctSingle(latestH,  h50),  val: `${latestH.toFixed(1)} cm · chrono`,  ref: h50.toFixed(1)+"cm 50th" },
+      hc:     { pct: getPctSingle(latestHC, hc50), val: `${latestHC.toFixed(1)} cm · chrono`, ref: hc50.toFixed(1)+"cm 50th" },
     };
   }
 }
 
-function computeVelocity(allData) {
-  const sorted = [...allData].filter(d=>d.weight && d.dateObj)
+// Fix 11: velocity from weight-only entries sorted by date
+function computeVelocity(weightData) {
+  const sorted = [...weightData].filter(d=>d.weight && d.dateObj)
     .sort((a,b)=>a.dateObj-b.dateObj);
-  if (sorted.length < 2) return 33;
-  const a = sorted[sorted.length-2];
-  const b = sorted[sorted.length-1];
-  const days = Math.max(1,(b.dateObj-a.dateObj)/86400000);
-  return Math.round(((b.weight-a.weight)*1000)/days);
+  if (sorted.length < 2) return null; // null = insufficient data
+  if (sorted.length >= 2) {
+    const a = sorted[sorted.length-2];
+    const b = sorted[sorted.length-1];
+    if (b.weight === a.weight) return 0;
+    const days = Math.max(1,(b.dateObj-a.dateObj)/86400000);
+    return Math.round(((b.weight-a.weight)*1000)/days);
+  }
+  return null;
 }
 
 // Build chart data with proper WHO reference lines
@@ -1533,16 +1710,28 @@ function GrowthScreen({ extraMeasurements, onAddMeasurement, showToast }) {
 
   const age  = getChronologicalAge();
   const corr = getCorrectedAge();
-  const allData = [...GROWTH_DATA, ...extraMeasurements];
 
-  // Fix 1: velocity always recalculated from current allData
-  const velG      = computeVelocity(allData);
-  const velColor  = velG>=20&&velG<=35?"#7C9A7E":velG>35?"#F5A623":"#E05C5C";
+  // Fix 11: Three independent arrays — only include entries that have the relevant metric
+  const weightData = [...GROWTH_DATA, ...extraMeasurements].filter(d=>d.weight && d.dateObj).sort((a,b)=>a.dateObj-b.dateObj);
+  const heightData = [...GROWTH_DATA, ...extraMeasurements].filter(d=>d.height && d.dateObj).sort((a,b)=>a.dateObj-b.dateObj);
+  const hcData     = [...GROWTH_DATA, ...extraMeasurements].filter(d=>d.hc     && d.dateObj).sort((a,b)=>a.dateObj-b.dateObj);
+  const allData    = [...GROWTH_DATA, ...extraMeasurements];
 
-  // Fix 2: proper percentile calculation
-  const pctData   = computePercentiles(ageMode, age, corr);
+  // Fix 11: velocity from weight-only
+  const velG     = computeVelocity(weightData);
+  const velColor = velG===null?"#8C9BAB":velG===0?"#F5A623":velG>=20&&velG<=35?"#7C9A7E":velG>35?"#F5A623":"#E05C5C";
+  const velLabel = velG===null?"Insufficient data":velG===0?"0 g/day — no change":`~${velG}g/day`;
+  const velStatus= velG===null?"—":velG===0?"No change":velG>=20&&velG<=35?"✓ On target":velG>35?"⚠ Above target":"⚠ Below target";
 
-  // Fix 3: proper chart data with 3 reference lines
+  // Fix 10+15: live latest measurements for percentile cards
+  const latestW  = weightData.length ? weightData[weightData.length-1].weight : 4.70;
+  const latestH  = heightData.length ? heightData[heightData.length-1].height : 59;
+  const latestHC = hcData.length     ? hcData[hcData.length-1].hc             : 37;
+
+  // Fix 10: pctData recomputes whenever weightData/heightData/hcData change (via component re-render from extraMeasurements prop)
+  const pctData = computePercentiles(ageMode, age, corr, latestW, latestH, latestHC);
+
+  // Chart data uses the correct per-metric arrays
   const chartData = buildChartData(tab, allData);
 
   // Y-axis domain
@@ -1602,29 +1791,30 @@ function GrowthScreen({ extraMeasurements, onAddMeasurement, showToast }) {
         ))}
       </div>
 
-      {/* Fix 2: Correct percentile cards */}
+      {/* Fix 10+15: Correct percentile cards — single value, updates reactively */}
       <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:8, marginBottom:16 }}>
         {[["Weight","weight"],["Height","height"],["Head","hc"]].map(([l,k])=>(
           <div key={k} style={{ ...S.card, textAlign:"center", padding:"12px 8px" }}>
-            <div style={{ fontSize:20, fontWeight:900, color:"#7C9A7E", lineHeight:1.2 }}>{pctData[k].band}</div>
-            <div style={{ fontSize:8, color:"#8C9BAB", textTransform:"uppercase", letterSpacing:"0.04em", marginTop:2 }}>percentile</div>
+            <div style={{ display:"inline-flex", alignItems:"baseline", gap:1 }}>
+              <span style={{ fontSize:24, fontWeight:900, color:"#7C9A7E", lineHeight:1.1 }}>{pctData[k].pct.replace(/[a-z]+$/,"")}</span>
+              <span style={{ fontSize:11, fontWeight:700, color:"#7C9A7E" }}>{ordinalSuffix(pctData[k].pct)}</span>
+            </div>
+            <div style={{ fontSize:8, color:"#8C9BAB", textTransform:"uppercase", letterSpacing:"0.04em", marginTop:1 }}>percentile</div>
             <div style={{ fontSize:11, fontWeight:700, color:"#2C3E50", marginTop:4 }}>{l}</div>
             <div style={{ fontSize:9, color:"#8C9BAB", marginTop:2 }}>{pctData[k].val}</div>
-            <div style={{ fontSize:9, color:"#aaa", marginTop:2 }}>50th: {pctData[k].ref}</div>
+            <div style={{ fontSize:8, color:"#bbb", marginTop:1 }}>50th: {pctData[k].ref}</div>
           </div>
         ))}
       </div>
 
-      {/* Fix 1: Velocity card */}
+      {/* Fix 11: Velocity from weight-only, handles null/zero */}
       <div style={{ background:"#f0f7f0", borderRadius:14, padding:"12px 14px", marginBottom:14, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
         <div>
           <div style={{ fontSize:12, color:"#8C9BAB", fontWeight:600 }}>Weight velocity</div>
-          <div style={{ fontSize:22, fontWeight:900, color:velColor }}>~{velG}g/day</div>
+          <div style={{ fontSize:22, fontWeight:900, color:velColor }}>{velLabel}</div>
         </div>
         <div style={{ textAlign:"right" }}>
-          <div style={{ background:velColor+"22", color:velColor, borderRadius:50, padding:"4px 12px", fontSize:11, fontWeight:700 }}>
-            {velG>=20&&velG<=35?"✓ On target":velG>35?"⚠ Above target":"⚠ Below target"}
-          </div>
+          <div style={{ background:velColor+"22", color:velColor, borderRadius:50, padding:"4px 12px", fontSize:11, fontWeight:700 }}>{velStatus}</div>
           <div style={{ fontSize:10, color:"#8C9BAB", marginTop:4 }}>Target: 20–35 g/day</div>
         </div>
       </div>
@@ -1785,12 +1975,10 @@ function GrowthScreen({ extraMeasurements, onAddMeasurement, showToast }) {
 }
 
 // ─── SCREEN 3: HEALTH ────────────────────────────────────
-function HealthScreen({ showToast }) {
+function HealthScreen({ showToast, clinicNum, setClinicNum }) {
   const [expanded,    setExpanded]   = useState(null);
   const [docSummary,  setDocSummary] = useState(null);
   const [docBusy,     setDocBusy]    = useState(false);
-  const [clinicSheet, setClinicSheet]= useState(false);
-  const [clinicNum,   setClinicNum]  = useState("");
   const [tempNum,     setTempNum]    = useState("");
   const [bookStep,    setBookStep]   = useState(null); // null | {vacc, step:1|2}
   const [booked,      setBooked]     = useState({});   // vaccIdx → true
@@ -1804,14 +1992,14 @@ function HealthScreen({ showToast }) {
 
   // Health Fix 2: history cards with status pills
   const historyCards = [
-    { id:"neuro",    icon:"🧠", title:"Neuro",      color:"#c67ad4", pill:"Neurodev clinic due now", pillLevel:"red",
-      events:["Day 3: IVH Grade 2 detected","Day 7: Regressed to Grade 1","Day 23: Fully resolved ✅","⏰ Neurodevelopment clinic at 4–6 months corrected"] },
+    { id:"neuro",    icon:"🧠", title:"Neuro",      color:"#c67ad4", pill:"Appt: 15 May 2026", pillLevel:"amber",
+      events:["Day 3: IVH Grade 2 detected","Day 7: Regressed to Grade 1","Day 23: Fully resolved ✅","⏰ Neurodevelopment clinic — 15 May 2026"] },
     { id:"resp",     icon:"🫁", title:"Respiratory", color:"#6bb5d6", pill:"Fully resolved", pillLevel:"green",
       events:["Birth: Intubated, surfactant given","Day 5: Room air achieved ✅","Day 5–6: Apnea, caffeine started","Day 24: Caffeine stopped, no recurrence ✅"] },
     { id:"kidney",   icon:"🧂", title:"Kidneys",     color:"#F5A623", pill:"Scan due ~Jun 2026", pillLevel:"amber",
       events:["Birth: Bilateral cysts, largest 5.7mm","Jan 2026: Creatinine normalised ✅","Mar 2026: Cysts reducing ✅","⏰ USG KUB + MCU scan (~Jun 2026)"] },
-    { id:"rop",      icon:"👁️", title:"Eyes (ROP)",  color:"#7C9A7E", pill:"ROP clearance pending", pillLevel:"amber",
-      events:["Day 26: Zone II, Stage 1–2, No Plus disease","Jan 2026: Follow-up — trending well ✅","⏰ Final ROP clearance check pending"] },
+    { id:"rop",      icon:"👁️", title:"Eyes (ROP)",  color:"#7C9A7E", pill:"Fully resolved ✅", pillLevel:"green",
+      events:["Day 26: Zone II, Stage 1–2, No Plus disease","Jan 2026: Follow-up — trending well ✅","15 Feb 2026 (age: 66 days): Full ROP clearance received ✅ — no further follow-up needed"] },
     { id:"jaundice", icon:"💛", title:"Jaundice",    color:"#F5A623", pill:"Resolved", pillLevel:"green",
       events:["24hrs: Phototherapy started","73hrs: Second phototherapy","~Day 5: Resolved ✅"] },
   ];
@@ -2124,12 +2312,13 @@ const INITIAL_LOGS_DATA = [
 ];
 
 function App() {
-  const [tab,    setTab]    = useState("today");
-  const [logs,   setLogs]   = useState(INITIAL_LOGS_DATA);
-  const [extras, setExtras] = useState([]);
-  const [toast,  setToast]  = useState(null);
-  const [voice,  setVoice]  = useState(false);
-  const [voiceSheet, setVoiceSheet] = useState(null);
+  const [tab,        setTab]       = useState("today");
+  const [logs,       setLogs]      = useState(INITIAL_LOGS_DATA);
+  const [extras,     setExtras]    = useState([]);
+  const [toast,      setToast]     = useState(null);
+  const [voice,      setVoice]     = useState(false);
+  const [voiceSheet, setVoiceSheet]= useState(null);
+  const [clinicNum,  setClinicNum] = useState(""); // shared across Today + Health
 
   const showToast = useCallback(m=>setToast(m),[]);
   const onLog     = useCallback(e=>setLogs(p=>[...p,{...e,_id:`l${Date.now()}`,_ts:Date.now(),_relTime:"just now"}]),[]);
@@ -2160,9 +2349,9 @@ function App() {
 
         {/* screen content */}
         <div style={{ flex:1, overflowY:"auto", padding:"20px 16px 90px" }}>
-          {tab==="today"    && <TodayScreen   logs={logs} onLog={onLog} onDeleteLog={onDelete} showToast={showToast}/>}
+          {tab==="today"    && <TodayScreen   logs={logs} onLog={onLog} onDeleteLog={onDelete} showToast={showToast} clinicNum={clinicNum} setClinicNum={setClinicNum}/>}
           {tab==="growth"   && <GrowthScreen  extraMeasurements={extras} onAddMeasurement={onMeasure} showToast={showToast}/>}
-          {tab==="health"   && <HealthScreen  showToast={showToast}/>}
+          {tab==="health"   && <HealthScreen  showToast={showToast} clinicNum={clinicNum} setClinicNum={setClinicNum}/>}
           {tab==="memories" && <MemoriesScreen showToast={showToast}/>}
         </div>
 
