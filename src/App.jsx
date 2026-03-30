@@ -13,7 +13,7 @@ export default function App() {
   const [parentProfile, setParentProfile] = useState(null)
 
   const BABY = {
-    id: 'maanvik-demo-id',
+    id: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
     name: 'Maanvik',
     dob: '2025-12-11',
     edd: '2026-02-15',
