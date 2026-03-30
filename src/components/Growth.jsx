@@ -220,7 +220,6 @@ export default function Growth({ baby, age }) {
       const date = new Date(d.date)
       const chronMonths = (date - dob) / (1000*60*60*24*30.44)
       const corrWeeks = Math.max(0, (date - edd) / (1000*60*60*24*7))
-      console.log('corrWeeks:', corrWeeks, 'height WHO50:', getWHO50('height','corrected',corrWeeks), 'actual height:', latestH)
       const who50Chron = getWHO50(type, 'chronological', chronMonths)
       const who50Corr = getWHO50(type, 'corrected', corrWeeks)
       return {
@@ -232,23 +231,30 @@ export default function Growth({ baby, age }) {
     })
   }
 
-  const getPercentiles = () => {
+ const getPercentiles = () => {
     const edd = new Date('2026-02-15')
     const dob = new Date('2025-12-11')
     const today = new Date()
     const chronMonths = (today - dob) / (1000*60*60*24*30.44)
     const corrWeeks = Math.max(0, (today - edd) / (1000*60*60*24*7))
-    const latestW = weightData[weightData.length-1]?.val
-    const latestH = heightData[heightData.length-1]?.val
-    const latestHC = hcData[hcData.length-1]?.val
-    const ref = ageType === 'chronological'
-      ? { w: getWHO50('weight','chronological',chronMonths), h: getWHO50('height','chronological',chronMonths), hc: getWHO50('hc','chronological',chronMonths) }
-      : { w: getWHO50('weight','corrected',corrWeeks), h: getWHO50('height','corrected',corrWeeks), hc: getWHO50('hc','corrected',corrWeeks) }
+    const latestW = weightData.length > 0 ? weightData[weightData.length-1].val : null
+    const latestH = heightData.length > 0 ? heightData[heightData.length-1].val : null
+    const latestHC = hcData.length > 0 ? hcData[hcData.length-1].val : null
+    const whoW = ageType === 'chronological'
+      ? getWHO50('weight', 'chronological', chronMonths)
+      : getWHO50('weight', 'corrected', corrWeeks)
+    const whoH = ageType === 'chronological'
+      ? getWHO50('height', 'chronological', chronMonths)
+      : getWHO50('height', 'corrected', corrWeeks)
+    const whoHC = ageType === 'chronological'
+      ? getWHO50('hc', 'chronological', chronMonths)
+      : getWHO50('hc', 'corrected', corrWeeks)
     return {
-      weight: getPercentile(latestW, ref.w),
-      height: getPercentile(latestH, ref.h),
-      hc: getPercentile(latestHC, ref.hc),
-      latestW, latestH, latestHC
+      weight: getPercentile(latestW, whoW),
+      height: getPercentile(latestH, whoH),
+      hc: getPercentile(latestHC, whoHC),
+      latestW, latestH, latestHC,
+      debug: { corrWeeks: corrWeeks.toFixed(2), whoH: whoH?.toFixed(2), latestH }
     }
   }
 
