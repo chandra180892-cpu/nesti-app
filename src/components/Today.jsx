@@ -35,7 +35,7 @@ function Toast({ message, onDone }) {
   return <div className="toast">{message}</div>
 }
 
-export default function Today({ session, baby, age, greeting, parentProfile }) {
+export default function Today({ session, baby, age, greeting, parentProfile, onMenuTap }) {
   const [logs, setLogs] = useState([])
   const [loading, setLoading] = useState(true)
   const [activeSheet, setActiveSheet] = useState(null)
