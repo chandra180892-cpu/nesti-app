@@ -389,14 +389,15 @@ setVoiceResult({ type: 'sleep', preview: `💤 Sleep — ${displayText}`, data: 
       const duration = voiceResult.data.sleepDuration
       const endTime = new Date()
       const startTime = new Date(endTime.getTime() - duration * 60000)
-      const { error } = await supabase.from('sleep_logs').insert({
+      const { data: sleepData, error: sleepError } = await supabase.from('sleep_logs').insert({
         baby_id: BABY_ID, logged_by: session.user.id,
         start_time: startTime.toISOString(),
         end_time: endTime.toISOString(),
         duration_minutes: duration,
         quality: 'Settled'
       })
-      if (!error) showToast('Sleep logged! 💤')
+      if (sleepError) showToast('Sleep error: ' + sleepError.message)
+      else showToast('Sleep logged! 💤')
     
     } else if (voiceResult.type === 'diaper') {
       const { error } = await supabase.from('diaper_logs').insert({
