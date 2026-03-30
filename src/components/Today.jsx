@@ -98,7 +98,12 @@ export default function Today({ session, baby, age, greeting, parentProfile, onM
   }, [chatHistory])
 
   const loadLogs = async () => {
-    const today = new Date().toISOString().split('T')[0]
+    const now = new Date()
+    const istOffset = 5.5 * 60 * 60000
+    const istNow = new Date(now.getTime() + istOffset)
+    const today = istNow.toISOString().split('T')[0]
+    const startOfDay = new Date(today + 'T00:00:00+05:30').toISOString()
+    const endOfDay = new Date(today + 'T23:59:59+05:30').toISOString()
     const allLogs = []
     const tables = [
       { name: 'feed_logs', timeCol: 'logged_at', type: 'feed' },
@@ -108,10 +113,11 @@ export default function Today({ session, baby, age, greeting, parentProfile, onM
     ]
     for (const t of tables) {
       const { data } = await supabase.from(t.name).select('*')
-        .gte(t.timeCol, today + 'T00:00:00')
-        .lte(t.timeCol, today + 'T23:59:59')
+        .gte(t.timeCol, startOfDay)
+        .lte(t.timeCol, endOfDay)
         .order(t.timeCol, { ascending: false })
       if (data) data.forEach(r => allLogs.push({ ...r, logType: t.type }))
+    }
     }
     allLogs.sort((a, b) => {
       const ta = new Date(a.logged_at || a.start_time)
@@ -349,13 +355,18 @@ export default function Today({ session, baby, age, greeting, parentProfile, onM
       const vol = volMatch ? parseInt(volMatch[1]) : 55
       const type = /formula/.test(t) ? 'Formula' : 'Breastmilk'
       setVoiceResult({ type: 'feed', preview: `🍼 Feed — ${vol}ml, ${type}`, data: { feedVol: vol, feedType: type } })
-    } else if (/sleep|slept|nap/.test(t)) {
-      const hrMatch = t.match(/(\d+)\s*(hr|hour)/)
-      const minMatch = t.match(/(\d+)\s*(min|minute)/)
+   } else if (/sleep|slept|nap/.test(t)) {
+      const hrMatch = t.match(/(\d+)\s*(hr|hrs|hour|hours)/)
+      const minMatch = t.match(/(\d+)\s*(min|mins|minute|minutes)/)
       const hrs = hrMatch ? parseInt(hrMatch[1]) : 0
       const mins = minMatch ? parseInt(minMatch[1]) : 0
-      const total = (hrs * 60) + mins || 120
-      setVoiceResult({ type: 'sleep', preview: `💤 Sleep — ${hrs > 0 ? hrs + 'hr ' : ''}${mins > 0 ? mins + 'min' : hrs === 0 ? '2hr' : ''}`, data: { sleepDuration: total } })
+      const total = hrs > 0 || mins > 0 ? (hrs * 60) + mins : 120
+      const displayHrs = Math.floor(total / 60)
+      const displayMins = total % 60
+      const displayText = displayHrs > 0 && displayMins > 0
+        ? `${displayHrs}hr ${displayMins}min`
+        : displayHrs > 0 ? `${displayHrs}hr` : `${displayMins}min`
+      setVoiceResult({ type: 'sleep', preview: `💤 Sleep — ${displayText}`, data: { sleepDuration: total } })
     } else if (/diaper|nappy|wet|soiled|poop/.test(t)) {
       const dtype = /soiled|poop/.test(t) ? 'Soiled' : 'Wet'
       setVoiceResult({ type: 'diaper', preview: `🩹 Diaper — ${dtype}`, data: { diaperType: dtype } })
