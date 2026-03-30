@@ -387,12 +387,17 @@ setVoiceResult({ type: 'sleep', preview: `💤 Sleep — ${displayText}`, data: 
       if (!error) showToast('Feed logged! 🍼')
     } else if (voiceResult.type === 'sleep') {
       const duration = voiceResult.data.sleepDuration
+      const endTime = new Date()
+      const startTime = new Date(endTime.getTime() - duration * 60000)
       const { error } = await supabase.from('sleep_logs').insert({
         baby_id: BABY_ID, logged_by: session.user.id,
-        start_time: new Date(new Date() - duration * 60000).toISOString(),
-        end_time: now, duration_minutes: duration, quality: 'Settled'
+        start_time: startTime.toISOString(),
+        end_time: endTime.toISOString(),
+        duration_minutes: duration,
+        quality: 'Settled'
       })
       if (!error) showToast('Sleep logged! 💤')
+    }
     } else if (voiceResult.type === 'diaper') {
       const { error } = await supabase.from('diaper_logs').insert({
         baby_id: BABY_ID, logged_by: session.user.id,
@@ -496,10 +501,15 @@ setVoiceResult({ type: 'sleep', preview: `💤 Sleep — ${displayText}`, data: 
   const pct = (val, target) => Math.min(100, Math.round((val / target) * 100))
   const formatRelative = (ts) => {
     if (!ts) return ''
-    const diff = Math.floor((new Date() - new Date(ts)) / 60000)
+    let tsFixed = ts
+    if (!ts.endsWith('Z') && !ts.includes('+') && !ts.includes('-', 10)) {
+      tsFixed = ts + 'Z'
+    }
+    const diff = Math.floor((new Date() - new Date(tsFixed)) / 60000)
     if (diff < 1) return 'just now'
     if (diff < 60) return `${diff}m ago`
-    const h = Math.floor(diff / 60); const m = diff % 60
+    const h = Math.floor(diff / 60)
+    const m = diff % 60
     return m > 0 ? `${h}h ${m}m ago` : `${h}h ago`
   }
   const getLogIcon = (type) => ({ feed: '🍼', sleep: '💤', diaper: '🩹', medicine: '💊' }[type] || '📝')
