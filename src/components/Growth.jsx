@@ -220,6 +220,7 @@ export default function Growth({ baby, age }) {
       const date = new Date(d.date)
       const chronMonths = (date - dob) / (1000*60*60*24*30.44)
       const corrWeeks = Math.max(0, (date - edd) / (1000*60*60*24*7))
+      console.log('corrWeeks:', corrWeeks, 'height WHO50:', getWHO50('height','corrected',corrWeeks), 'actual height:', latestH)
       const who50Chron = getWHO50(type, 'chronological', chronMonths)
       const who50Corr = getWHO50(type, 'corrected', corrWeeks)
       return {
