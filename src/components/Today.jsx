@@ -377,12 +377,40 @@ setVoiceResult({ type: 'sleep', preview: `💤 Sleep — ${displayText}`, data: 
 
   const confirmVoiceLog = async () => {
     if (!voiceResult) return
-    if (voiceResult.type === 'feed') { setFeedVol(voiceResult.data.feedVol); setFeedType(voiceResult.data.feedType); await handleSaveFeed() }
-    else if (voiceResult.type === 'sleep') { setSleepDuration(voiceResult.data.sleepDuration); await handleSaveSleep() }
-    else if (voiceResult.type === 'diaper') { setDiaperType(voiceResult.data.diaperType); await handleSaveDiaper() }
-    else if (voiceResult.type === 'medicine') { setMedName(voiceResult.data.medName); await handleSaveMed() }
+    const now = new Date().toISOString()
+    if (voiceResult.type === 'feed') {
+      const { error } = await supabase.from('feed_logs').insert({
+        baby_id: BABY_ID, logged_by: session.user.id,
+        logged_at: now, type: voiceResult.data.feedType,
+        volume_ml: voiceResult.data.feedVol
+      })
+      if (!error) showToast('Feed logged! 🍼')
+    } else if (voiceResult.type === 'sleep') {
+      const duration = voiceResult.data.sleepDuration
+      const { error } = await supabase.from('sleep_logs').insert({
+        baby_id: BABY_ID, logged_by: session.user.id,
+        start_time: new Date(new Date() - duration * 60000).toISOString(),
+        end_time: now, duration_minutes: duration, quality: 'Settled'
+      })
+      if (!error) showToast('Sleep logged! 💤')
+    } else if (voiceResult.type === 'diaper') {
+      const { error } = await supabase.from('diaper_logs').insert({
+        baby_id: BABY_ID, logged_by: session.user.id,
+        logged_at: now, type: voiceResult.data.diaperType,
+        wetness: 'Normal'
+      })
+      if (!error) showToast('Diaper logged! 🩹')
+    } else if (voiceResult.type === 'medicine') {
+      const med = MEDICINES.find(m => m.name === voiceResult.data.medName) || MEDICINES[0]
+      const { error } = await supabase.from('medicine_logs').insert({
+        baby_id: BABY_ID, logged_by: session.user.id,
+        logged_at: now, medicine_name: med.name, dose: med.dose
+      })
+      if (!error) showToast('Medicine logged! 💊')
+    }
     setVoiceOpen(false)
     setVoiceResult(null)
+    await loadLogs()
   }
 
   const stopSound = () => {
