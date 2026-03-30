@@ -11,7 +11,13 @@ const WHO_50TH = {
   },
   height: {
     chronological: [{age:0,val:49.9},{age:1,val:54.7},{age:2,val:58.4},{age:3,val:61.4},{age:4,val:63.9},{age:5,val:65.9},{age:6,val:67.6}],
-    corrected: [{weeks:0,val:49.9},{weeks:4,val:54.4},{weeks:5,val:55.3},{weeks:6,val:56.2},{weeks:8,val:57.6},{weeks:10,val:59.1},{weeks:12,val:60.3},{weeks:16,val:63.0}]
+    corrected: [
+      {weeks:0,val:49.9},{weeks:1,val:50.8},{weeks:2,val:51.8},
+      {weeks:3,val:52.7},{weeks:4,val:53.5},{weeks:5,val:54.4},
+      {weeks:6,val:55.2},{weeks:7,val:56.0},{weeks:8,val:56.7},
+      {weeks:10,val:58.1},{weeks:12,val:59.4},{weeks:14,val:60.7},
+      {weeks:16,val:61.9}
+    ]
   },
   hc: {
     chronological: [{age:0,val:34.5},{age:1,val:37.3},{age:2,val:39.1},{age:3,val:40.5},{age:4,val:41.6},{age:5,val:42.6},{age:6,val:43.3}],
