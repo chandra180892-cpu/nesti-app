@@ -487,8 +487,9 @@ export default function Today({ session, baby, age, greeting, parentProfile }) {
   return (
     <div>
       {/* Header */}
-      <div style={{ padding: '20px 16px 8px', background: 'white', borderBottom: '1px solid #EEF0F2' }}>
-        <div style={{ fontSize: 18, fontWeight: 800, color: '#2C3E50' }}>{greeting}</div>
+      <div style={{ padding: '20px 16px 8px', background: 'white', borderBottom: '1px solid #EEF0F2', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+  <div style={{ fontSize: 18, fontWeight: 800, color: '#2C3E50' }}>{greeting}</div>
+  <button onClick={onMenuTap} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, padding: '0 0 0 8px' }}>⚙️</button>
         <div style={{ display: 'inline-flex', alignItems: 'center', background: '#E8F5E9', borderRadius: 50, padding: '4px 12px', marginTop: 8 }}>
           <span style={{ fontSize: 11, fontWeight: 600, color: '#2E7D32' }}>
             Maanvik's age: {age.chronMonths}m {age.chronRemDays}d · {age.corrWeeks}w {age.corrRemDays}d corrected
