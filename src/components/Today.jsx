@@ -397,7 +397,7 @@ setVoiceResult({ type: 'sleep', preview: `💤 Sleep — ${displayText}`, data: 
         quality: 'Settled'
       })
       if (!error) showToast('Sleep logged! 💤')
-    }
+    
     } else if (voiceResult.type === 'diaper') {
       const { error } = await supabase.from('diaper_logs').insert({
         baby_id: BABY_ID, logged_by: session.user.id,
