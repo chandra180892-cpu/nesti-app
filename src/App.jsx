@@ -126,8 +126,9 @@ export default function App() {
     <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100vh', background:'#FDFCFA' }}>
       <div style={{ textAlign:'center' }}>
         <div style={{ fontSize:48, marginBottom:8 }}>🌿</div>
-        <div style={{ fontSize:22, fontWeight:800, color:'#7C9A7E' }}>nesti</div>
-        <div style={{ fontSize:13, color:'#8C9BAB', marginTop:4 }}>loading...</div>
+        <div style={{ fontSize:22, fontWeight:800, color:'#7C9A7E' }}>AIRA</div>
+<div style={{ fontSize:11, color:'#7C9A7E', fontWeight:600, marginTop:2 }}>Know more. Worry less.</div>
+<div style={{ fontSize:13, color:'#8C9BAB', marginTop:4 }}>loading...</div>
       </div>
     </div>
   )
@@ -137,7 +138,7 @@ export default function App() {
       <div style={{ width:'100%', maxWidth:380 }}>
         <div style={{ textAlign:'center', marginBottom:32 }}>
           <div style={{ fontSize:48, marginBottom:8 }}>🌿</div>
-          <div style={{ fontSize:24, fontWeight:800, color:'#7C9A7E' }}>nesti</div>
+          <div style={{ fontSize:24, fontWeight:800, color:'#7C9A7E' }}>AIRA</div>
           <div style={{ fontSize:14, color:'#8C9BAB', marginTop:4 }}>Set your new password</div>
         </div>
         <div style={{ background:'white', borderRadius:20, padding:24, boxShadow:'0 2px 16px rgba(0,0,0,0.06)' }}>
