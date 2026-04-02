@@ -94,7 +94,7 @@ export default function Growth({ baby, age }) {
   const [showMilestoneDate, setShowMilestoneDate] = useState('')
   const [showMilestoneNote, setShowMilestoneNote] = useState('')
   const [showConfetti, setShowConfetti] = useState(false)
-  const [nestiAssessment, setNestiAssessment] = useState(null)
+  const [AIRAAssessment, setAIRAAssessment] = useState(null)
   const [assessmentLoading, setAssessmentLoading] = useState(false)
   const [addWeight, setAddWeight] = useState('')
   const [addHeight, setAddHeight] = useState('')
@@ -198,8 +198,8 @@ export default function Growth({ baby, age }) {
         body: JSON.stringify({ systemPrompt, userMessage: userMsg })
       })
       const data = await res.json()
-      setNestiAssessment(data.text || fallback)
-    } catch { setNestiAssessment(fallback) }
+      setAIRAAssessment(data.text || fallback)
+    } catch { setAIRAAssessment(fallback) }
     setAssessmentLoading(false)
   }
 
@@ -392,16 +392,16 @@ export default function Growth({ baby, age }) {
         </>
       )}
 
-      {/* Nesti Assessment */}
-      <div className="section-label" style={{ marginTop:16 }}>nesti's developmental assessment 🌿</div>
+      {/* AIRA Assessment */}
+      <div className="section-label" style={{ marginTop:16 }}>AIRA's developmental assessment 🌿</div>
       <div className="card">
-        {nestiAssessment ? (
-          <div style={{ fontSize:13, color:'#2C3E50', lineHeight:1.7, whiteSpace:'pre-line' }}>{nestiAssessment}</div>
+        {AIRAAssessment ? (
+          <div style={{ fontSize:13, color:'#2C3E50', lineHeight:1.7, whiteSpace:'pre-line' }}>{AIRAAssessment}</div>
         ) : (
           <div style={{ textAlign:'center', color:'#8C9BAB', padding:'8px 0 12px' }}>Get an AI-powered developmental assessment based on Maanvik's milestones</div>
         )}
-        <button onClick={generateAssessment} className="btn-primary" style={{ marginTop:nestiAssessment?12:0 }} disabled={assessmentLoading}>
-          {assessmentLoading ? 'Analysing...' : nestiAssessment ? '↻ Refresh Assessment' : 'Generate Assessment'}
+        <button onClick={generateAssessment} className="btn-primary" style={{ marginTop:AIRAAssessment?12:0 }} disabled={assessmentLoading}>
+          {assessmentLoading ? 'Analysing...' : AIRAAssessment ? '↻ Refresh Assessment' : 'Generate Assessment'}
         </button>
       </div>
 
