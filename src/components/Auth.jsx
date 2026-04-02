@@ -37,8 +37,9 @@ export default function Auth() {
       <div style={{ width:'100%', maxWidth:380 }}>
         <div style={{ textAlign:'center', marginBottom:40 }}>
           <div style={{ fontSize:48, marginBottom:8 }}>🌿</div>
-          <div style={{ fontSize:28, fontWeight:800, color:'#7C9A7E', letterSpacing:'-0.5px' }}>nesti</div>
-          <div style={{ fontSize:14, color:'#8C9BAB', marginTop:4 }}>Your baby's care companion</div>
+          <div style={{ fontSize:28, fontWeight:800, color:'#7C9A7E', letterSpacing:'-0.5px' }}>AIRA</div>
+<div style={{ fontSize:13, color:'#7C9A7E', fontWeight:600, marginTop:2 }}>Know more. Worry less.</div>
+<div style={{ fontSize:13, color:'#8C9BAB', marginTop:4 }}>Your Parenting OS</div>
         </div>
 
         <div style={{ background:'white', borderRadius:20, padding:24, boxShadow:'0 2px 16px rgba(0,0,0,0.06)' }}>
@@ -89,7 +90,7 @@ export default function Auth() {
         </div>
 
         <div style={{ textAlign:'center', marginTop:20, fontSize:13, color:'#8C9BAB' }}>
-          nesti keeps Maanvik's data safe and private 🔒
+          AIRA keeps Maanvik's data safe and private 🔒
         </div>
       </div>
     </div>
