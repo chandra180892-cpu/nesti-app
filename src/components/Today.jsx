@@ -43,8 +43,8 @@ export default function Today({ session, baby, age, greeting, parentProfile, onM
   const [activeSheet, setActiveSheet] = useState(null)
   const [toast, setToast] = useState(null)
   const [showAllLogs, setShowAllLogs] = useState(false)
-  const [nestiObs, setNestiObs] = useState(null)
-  const [nestiLoading, setNestiLoading] = useState(false)
+  const [AIRAObs, setAIRAObs] = useState(null)
+  const [AIRALoading, setAIRALoading] = useState(false)
   const [obsCollapsed, setObsCollapsed] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
   const [chatHistory, setChatHistory] = useState([
@@ -90,7 +90,7 @@ export default function Today({ session, baby, age, greeting, parentProfile, onM
   useEffect(() => { loadLogs() }, [])
 
   useEffect(() => {
-    if (!loading) generateNestiObs()
+    if (!loading) generateAIRAObs()
   }, [logs, loading])
 
   useEffect(() => {
@@ -246,10 +246,10 @@ const endOfDay = new Date(today + 'T23:59:59+05:30').toISOString()
     return { color: '#2E7D32', bg: '#E8F5E9', icon: '🌿', text: "Maanvik's doing great today — all targets on track" }
   }, [getTodayMetrics])
 
-  const generateNestiObs = async () => {
-    setNestiLoading(true)
+  const generateAIRAObs = async () => {
+    setAIRALoading(true)
     const metrics = getTodayMetrics()
-    const systemPrompt = `You are nesti, a warm AI paediatric care companion for parents of Maanvik, a premature baby born at 30+4 weeks, now ${age.chronMonths} months ${age.chronRemDays} days old (${age.corrWeeks} weeks corrected). Analyse today's logs. Respond in EXACTLY this format:\n🍼 Feeding\n• [one bullet max 15 words]\n💤 Sleep\n• [one bullet]\n🌟 Overall\n• [one bullet]\n*[one warm encouraging line]*\nMax 10 lines total.`
+    const systemPrompt = `You are AIRA, a warm AI paediatric care companion for parents of Maanvik, a premature baby born at 30+4 weeks, now ${age.chronMonths} months ${age.chronRemDays} days old (${age.corrWeeks} weeks corrected). Analyse today's logs. Respond in EXACTLY this format:\n🍼 Feeding\n• [one bullet max 15 words]\n💤 Sleep\n• [one bullet]\n🌟 Overall\n• [one bullet]\n*[one warm encouraging line]*\nMax 10 lines total.`
     const userMsg = `Feeds: ${metrics.totalFeedMl}ml (${metrics.feedLogs.length} feeds). Sleep: ${metrics.totalSleepHrs.toFixed(1)}hrs. Diapers: ${metrics.diaperCount}. Medicines: ${metrics.medCount}. Last feed: ${metrics.minsAgo !== null ? metrics.minsAgo + ' mins ago' : 'none today'}.`
     const fallback = `🍼 Feeding\n• ${Math.round(metrics.totalFeedMl)}ml logged — ${metrics.totalFeedMl >= 280 ? 'on track' : 'building toward'} daily target\n\n💤 Sleep\n• ${metrics.totalSleepHrs.toFixed(1)}hrs logged — keep encouraging sleep windows\n\n🌟 Overall\n• Good rhythm today — feeds and sleep aligning well\n\n*You're doing beautifully. Every log matters. 🌿*`
     try {
@@ -259,11 +259,11 @@ const endOfDay = new Date(today + 'T23:59:59+05:30').toISOString()
         body: JSON.stringify({ systemPrompt, userMessage: userMsg })
       })
       const data = await res.json()
-      setNestiObs(data.text || fallback)
+      setAIRAObs(data.text || fallback)
     } catch {
-      setNestiObs(fallback)
+      setAIRAObs(fallback)
     }
-    setNestiLoading(false)
+    setAIRALoading(false)
   }
 
   const handleChatSend = async () => {
@@ -274,7 +274,7 @@ const endOfDay = new Date(today + 'T23:59:59+05:30').toISOString()
     setChatInput('')
     setChatLoading(true)
     const userMessages = newHistory.filter(m => m.role === 'user')
-    const systemPrompt = `You are nesti, a warm supportive friend who is also a paediatrician. Chat with Maanvik's parent. Ask ONE gentle follow-up question per response. Keep responses under 60 words. Be conversational.`
+    const systemPrompt = `You are AIRA, a warm supportive friend who is also a paediatrician. Chat with Maanvik's parent. Ask ONE gentle follow-up question per response. Keep responses under 60 words. Be conversational.`
     try {
       const res = await fetch('/api/ai', {
         method: 'POST',
@@ -631,21 +631,21 @@ setVoiceResult({ type: 'sleep', preview: `💤 Sleep — ${displayText}`, data: 
 
       {obsCollapsed ? (
         <div onClick={() => setObsCollapsed(false)} style={{ margin: '0 16px 12px', padding: '12px 16px', border: '1.5px solid #7C9A7E', borderRadius: 12, background: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: '#7C9A7E' }}>🌿 nesti's observations</span>
+          <span style={{ fontSize: 13, fontWeight: 600, color: '#7C9A7E' }}>🌿 AIRA's observations</span>
           <span style={{ fontSize: 12, color: '#8C9BAB' }}>↓ expand</span>
         </div>
       ) : (
         <div className="card">
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-            <span style={{ fontSize: 12, fontWeight: 700, color: '#8C9BAB', textTransform: 'uppercase', letterSpacing: 0.8 }}>nesti's observations 🌿</span>
-            <button onClick={generateNestiObs} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: '#7C9A7E', fontWeight: 600 }}>↻ Refresh</button>
+            <span style={{ fontSize: 12, fontWeight: 700, color: '#8C9BAB', textTransform: 'uppercase', letterSpacing: 0.8 }}>AIRA's observations 🌿</span>
+            <button onClick={generateAIRAObs} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: '#7C9A7E', fontWeight: 600 }}>↻ Refresh</button>
           </div>
-          {nestiLoading ? (
+          {AIRALoading ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {[80, 60, 90].map((w, i) => <div key={i} style={{ height: 12, background: '#EEF0F2', borderRadius: 6, width: `${w}%` }} />)}
             </div>
           ) : (
-            <div style={{ fontSize: 13, color: '#2C3E50', lineHeight: 1.7, whiteSpace: 'pre-line' }}>{nestiObs}</div>
+            <div style={{ fontSize: 13, color: '#2C3E50', lineHeight: 1.7, whiteSpace: 'pre-line' }}>{AIRAObs}</div>
           )}
           <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
             <button onClick={() => setObsCollapsed(true)} style={{ flex: 1, padding: '10px', borderRadius: 50, background: '#7C9A7E', color: 'white', border: 'none', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>Looks good ✓</button>
@@ -838,7 +838,7 @@ setVoiceResult({ type: 'sleep', preview: `💤 Sleep — ${displayText}`, data: 
           <div className="sheet" style={{ height: '80vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
             <div className="sheet-handle" />
             <div className="sheet-header">
-              <span className="sheet-title">Chat with nesti 🌿</span>
+              <span className="sheet-title">Chat with AIRA 🌿</span>
               <button className="sheet-close" onClick={() => setChatOpen(false)}>×</button>
             </div>
             <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 12 }}>
@@ -849,7 +849,7 @@ setVoiceResult({ type: 'sleep', preview: `💤 Sleep — ${displayText}`, data: 
               ))}
               {chatLoading && (
                 <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
-                  <div style={{ padding: '10px 14px', borderRadius: '16px 16px 16px 4px', background: 'white', fontSize: 13, color: '#8C9BAB' }}>nesti is typing...</div>
+                  <div style={{ padding: '10px 14px', borderRadius: '16px 16px 16px 4px', background: 'white', fontSize: 13, color: '#8C9BAB' }}>AIRA is typing...</div>
                 </div>
               )}
               {showChatSummary && (
