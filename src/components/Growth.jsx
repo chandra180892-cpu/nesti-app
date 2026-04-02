@@ -174,9 +174,13 @@ export default function Growth({ baby, age }) {
       achieved: true, achieved_date: date, notes: showMilestoneNote
     }, { onConflict: 'baby_id,name' })
     if (!error) {
-      setMilestones(prev => prev.map(m => m.id === milestone.id ? { ...m, achieved: true, achievedDate: date } : m))
+      setMilestones(prev => prev.map(m =>
+        m.id === milestone.id
+          ? { ...m, achieved: true, achievedDate: date, notes: showMilestoneNote }
+          : m
+      ))
       setShowConfetti(true)
-      setTimeout(() => setShowConfetti(false), 3000)
+      setTimeout(() => setShowConfetti(false), 4000)
       setToast(`🎉 ${milestone.name} — What a moment!`)
     }
     setShowMilestoneSheet(null)
@@ -268,11 +272,38 @@ export default function Growth({ baby, age }) {
   const achievedMilestones = milestones.filter(m => m.achieved)
   const pendingMilestones = milestones.filter(m => !m.achieved)
 
-  return (
+ return (
     <div>
+      <style>{`
+        @keyframes confettiFall {
+          0% { transform: translateY(-20px) rotate(0deg); opacity: 1; }
+          100% { transform: translateY(100vh) rotate(720deg); opacity: 0; }
+        }
+      `}</style>
       {showConfetti && (
-        <div style={{ position:'fixed', inset:0, pointerEvents:'none', zIndex:999, display:'flex', alignItems:'center', justifyContent:'center' }}>
-          <div style={{ fontSize:60 }}>🎉</div>
+        <div style={{ position:'fixed', inset:0, pointerEvents:'none', zIndex:999, overflow:'hidden' }}>
+          {[...Array(40)].map((_, i) => (
+            <div key={i} style={{
+              position:'absolute',
+              left: `${Math.random() * 100}%`,
+              top: '-20px',
+              fontSize: `${16 + Math.random() * 20}px`,
+              animation: `confettiFall ${1.5 + Math.random() * 2}s ease-in forwards`,
+              animationDelay: `${Math.random() * 1}s`,
+              transform: `rotate(${Math.random() * 360}deg)`
+            }}>
+              {['🎉','⭐','🌟','✨','🎊','💫','🌈'][Math.floor(Math.random() * 7)]}
+            </div>
+          ))}
+          <div style={{
+            position:'absolute', top:'40%', left:'50%', transform:'translate(-50%,-50%)',
+            background:'white', borderRadius:24, padding:'24px 36px', textAlign:'center',
+            boxShadow:'0 8px 40px rgba(0,0,0,0.15)', zIndex:1000
+          }}>
+            <div style={{ fontSize:48, marginBottom:8 }}>🎉</div>
+            <div style={{ fontSize:18, fontWeight:800, color:'#2C3E50', marginBottom:4 }}>Milestone reached!</div>
+            <div style={{ fontSize:13, color:'#8C9BAB' }}>Maanvik is growing beautifully 🌿</div>
+          </div>
         </div>
       )}
 
@@ -343,6 +374,7 @@ export default function Growth({ baby, age }) {
       {/* Milestones */}
       <div className="section-label" style={{ marginTop:20 }}>Developmental milestones</div>
 
+     {/* Pending milestones - TOP */}
       {pendingMilestones.map(m => (
         <div key={m.id} className="card" style={{ marginBottom:8 }}>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
@@ -355,7 +387,7 @@ export default function Growth({ baby, age }) {
         </div>
       ))}
 
-      {/* Next month */}
+      {/* Next month section */}
       <div style={{ padding:'0 16px', marginBottom:8 }}>
         <button onClick={() => setShowNextMonth(!showNextMonth)} style={{ width:'100%', padding:'12px', background:'#F0F7F0', borderRadius:12, border:'1.5px dashed #7C9A7E', color:'#7C9A7E', fontWeight:700, fontSize:13, cursor:'pointer' }}>
           {showNextMonth ? '▲ Hide' : '▼ Coming up next month 🔜'}
@@ -374,18 +406,24 @@ export default function Growth({ baby, age }) {
         </div>
       ))}
 
-      {/* Achieved milestones */}
+      {/* Achieved milestones - BOTTOM */}
       {achievedMilestones.length > 0 && (
         <>
-          <div className="section-label">Milestones reached 🎉 <span style={{ background:'#7C9A7E', color:'white', borderRadius:50, padding:'1px 8px', fontSize:10, marginLeft:4 }}>{achievedMilestones.length}</span></div>
+          <div className="section-label" style={{ marginTop:16 }}>
+            Milestones reached 🎉{' '}
+            <span style={{ background:'#7C9A7E', color:'white', borderRadius:50, padding:'2px 8px', fontSize:10, marginLeft:4 }}>{achievedMilestones.length}</span>
+          </div>
           {achievedMilestones.map(m => (
-            <div key={m.id} className="card" style={{ marginBottom:8, background:'#F0F7F0', border:'1px solid #C8E6C9' }}>
+            <div key={m.id} className="card" style={{ marginBottom:8, background:'#F0F7F0', border:'1.5px solid #C8E6C9' }}>
               <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                <div>
-                  <div style={{ fontSize:14, fontWeight:600, color:'#2E7D32' }}>✓ {m.name}</div>
-                  <div style={{ fontSize:11, color:'#7C9A7E' }}>{m.achievedDate ? new Date(m.achievedDate).toLocaleDateString('en', { day:'numeric', month:'short', year:'numeric' }) : 'Date not set'}</div>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:14, fontWeight:700, color:'#2E7D32' }}>✓ {m.name}</div>
+                  <div style={{ fontSize:11, color:'#7C9A7E', marginTop:2 }}>
+                    {m.achievedDate ? new Date(m.achievedDate).toLocaleDateString('en', { day:'numeric', month:'short', year:'numeric' }) : 'Date not recorded'}
+                    {m.notes ? ` · ${m.notes}` : ''}
+                  </div>
                 </div>
-                <button onClick={() => setShowMilestoneSheet(m)} style={{ fontSize:12, color:'#8C9BAB', background:'none', border:'none', cursor:'pointer' }}>Edit</button>
+                <button onClick={() => { setShowMilestoneSheet(m); setShowMilestoneDate(m.achievedDate || ''); setShowMilestoneNote(m.notes || '') }} style={{ fontSize:12, color:'#8C9BAB', background:'none', border:'none', cursor:'pointer', padding:'4px 8px' }}>Edit</button>
               </div>
             </div>
           ))}
