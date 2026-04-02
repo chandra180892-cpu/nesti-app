@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../supabaseClient'
-import { LineChart, Line, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts'
+import { LineChart, Line, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 
 const BABY_ID = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890'
 
@@ -11,13 +11,7 @@ const WHO_50TH = {
   },
   height: {
     chronological: [{age:0,val:49.9},{age:1,val:54.7},{age:2,val:58.4},{age:3,val:61.4},{age:4,val:63.9},{age:5,val:65.9},{age:6,val:67.6}],
-    corrected: [
-      {weeks:0,val:49.9},{weeks:1,val:50.8},{weeks:2,val:51.8},
-      {weeks:3,val:52.7},{weeks:4,val:53.5},{weeks:5,val:54.4},
-      {weeks:6,val:55.2},{weeks:7,val:56.0},{weeks:8,val:56.7},
-      {weeks:10,val:58.1},{weeks:12,val:59.4},{weeks:14,val:60.7},
-      {weeks:16,val:61.9}
-    ]
+    corrected: [{weeks:0,val:49.9},{weeks:1,val:50.8},{weeks:2,val:51.8},{weeks:3,val:52.7},{weeks:4,val:53.5},{weeks:5,val:54.4},{weeks:6,val:55.2},{weeks:7,val:56.0},{weeks:8,val:56.7},{weeks:10,val:58.1},{weeks:12,val:59.4},{weeks:14,val:60.7},{weeks:16,val:61.9}]
   },
   hc: {
     chronological: [{age:0,val:34.5},{age:1,val:37.3},{age:2,val:39.1},{age:3,val:40.5},{age:4,val:41.6},{age:5,val:42.6},{age:6,val:43.3}],
@@ -81,20 +75,24 @@ const formatDate = (dateStr) => {
   return d.toLocaleDateString('en', { day:'numeric', month:'short' })
 }
 
+const CONFETTI_EMOJIS = ['🎉','⭐','🌟','✨','🎊','💫','🌈']
+
 export default function Growth({ baby, age }) {
   const [activeTab, setActiveTab] = useState('weight')
   const [ageType, setAgeType] = useState('corrected')
   const [weightData, setWeightData] = useState([])
   const [heightData, setHeightData] = useState([])
   const [hcData, setHcData] = useState([])
-  const [milestones, setMilestones] = useState(MILESTONES.map(m => ({ ...m, achieved: false, achievedDate: null })))
+  const [milestones, setMilestones] = useState(MILESTONES.map(m => ({ ...m, achieved: false, achievedDate: null, notes: '' })))
   const [showNextMonth, setShowNextMonth] = useState(false)
   const [showAddSheet, setShowAddSheet] = useState(false)
   const [showMilestoneSheet, setShowMilestoneSheet] = useState(null)
   const [showMilestoneDate, setShowMilestoneDate] = useState('')
   const [showMilestoneNote, setShowMilestoneNote] = useState('')
   const [showConfetti, setShowConfetti] = useState(false)
-  const [AIRAAssessment, setAIRAAssessment] = useState(null)
+  const [confettiItems, setConfettiItems] = useState([])
+  const [celebrationName, setCelebrationName] = useState('')
+  const [nestiAssessment, setNestiAssessment] = useState(null)
   const [assessmentLoading, setAssessmentLoading] = useState(false)
   const [addWeight, setAddWeight] = useState('')
   const [addHeight, setAddHeight] = useState('')
@@ -129,12 +127,9 @@ export default function Growth({ baby, age }) {
       const wt = data.filter(d => d.weight_kg).map(d => ({ date: d.measured_at, val: d.weight_kg }))
       const ht = data.filter(d => d.height_cm).map(d => ({ date: d.measured_at, val: d.height_cm }))
       const hc = data.filter(d => d.hc_cm).map(d => ({ date: d.measured_at, val: d.hc_cm }))
-      if (wt.length > 0) setWeightData([...INITIAL_WEIGHT, ...wt.filter(d => !INITIAL_WEIGHT.find(i => i.date === d.date))])
-      else setWeightData(INITIAL_WEIGHT)
-      if (ht.length > 0) setHeightData([...INITIAL_HEIGHT, ...ht.filter(d => !INITIAL_HEIGHT.find(i => i.date === d.date))])
-      else setHeightData(INITIAL_HEIGHT)
-      if (hc.length > 0) setHcData([...INITIAL_HC, ...hc.filter(d => !INITIAL_HC.find(i => i.date === d.date))])
-      else setHcData(INITIAL_HC)
+      setWeightData(wt.length > 0 ? [...INITIAL_WEIGHT, ...wt.filter(d => !INITIAL_WEIGHT.find(i => i.date === d.date))] : INITIAL_WEIGHT)
+      setHeightData(ht.length > 0 ? [...INITIAL_HEIGHT, ...ht.filter(d => !INITIAL_HEIGHT.find(i => i.date === d.date))] : INITIAL_HEIGHT)
+      setHcData(hc.length > 0 ? [...INITIAL_HC, ...hc.filter(d => !INITIAL_HC.find(i => i.date === d.date))] : INITIAL_HC)
     } else {
       setWeightData(INITIAL_WEIGHT)
       setHeightData(INITIAL_HEIGHT)
@@ -147,9 +142,25 @@ export default function Growth({ baby, age }) {
     if (data && data.length > 0) {
       setMilestones(MILESTONES.map(m => {
         const saved = data.find(d => d.name === m.name)
-        return saved ? { ...m, achieved: saved.achieved, achievedDate: saved.achieved_date, notes: saved.notes } : m
+        return saved ? { ...m, achieved: saved.achieved, achievedDate: saved.achieved_date, notes: saved.notes || '' } : m
       }))
     }
+  }
+
+  const triggerConfetti = (milestoneName) => {
+    const items = [...Array(50)].map((_, i) => ({
+      id: i,
+      emoji: CONFETTI_EMOJIS[Math.floor(Math.random() * CONFETTI_EMOJIS.length)],
+      left: Math.random() * 100,
+      size: 16 + Math.random() * 20,
+      duration: 1.5 + Math.random() * 2,
+      delay: Math.random() * 0.8,
+      rotation: Math.random() * 360
+    }))
+    setConfettiItems(items)
+    setCelebrationName(milestoneName)
+    setShowConfetti(true)
+    setTimeout(() => setShowConfetti(false), 4000)
   }
 
   const handleAddMeasurement = async () => {
@@ -170,8 +181,11 @@ export default function Growth({ baby, age }) {
   const handleMilestoneAchieved = async (milestone) => {
     const date = showMilestoneDate || new Date().toISOString().split('T')[0]
     const { error } = await supabase.from('milestones').upsert({
-      baby_id: BABY_ID, name: milestone.name,
-      achieved: true, achieved_date: date, notes: showMilestoneNote
+      baby_id: BABY_ID,
+      name: milestone.name,
+      achieved: true,
+      achieved_date: date,
+      notes: showMilestoneNote
     }, { onConflict: 'baby_id,name' })
     if (!error) {
       setMilestones(prev => prev.map(m =>
@@ -179,9 +193,10 @@ export default function Growth({ baby, age }) {
           ? { ...m, achieved: true, achievedDate: date, notes: showMilestoneNote }
           : m
       ))
-      setShowConfetti(true)
-      setTimeout(() => setShowConfetti(false), 4000)
+      triggerConfetti(milestone.name)
       setToast(`🎉 ${milestone.name} — What a moment!`)
+    } else {
+      setToast('Error saving milestone')
     }
     setShowMilestoneSheet(null)
     setShowMilestoneDate('')
@@ -192,7 +207,7 @@ export default function Growth({ baby, age }) {
     setAssessmentLoading(true)
     const achieved = milestones.filter(m => m.achieved)
     const pending = milestones.filter(m => !m.achieved)
-    const systemPrompt = `You are a paediatrician reviewing developmental milestones for Maanvik, premature baby born at 30+4 weeks, now ${age.chronMonths} months ${age.chronRemDays} days old (${age.corrWeeks} weeks ${age.corrRemDays} days corrected). Review the milestones and give: 1) Brief progress summary 2) Any delayed milestones with monitoring actions 3) Items to discuss with Dr. Saurabh Khanna 4) One encouraging line. Max 200 words, use bullet points.`
+    const systemPrompt = `You are AIRA, a paediatrician reviewing developmental milestones for Maanvik, premature baby born at 30+4 weeks, now ${age.chronMonths} months ${age.chronRemDays} days old (${age.corrWeeks} weeks ${age.corrRemDays} days corrected). Review the milestones and give: 1) Brief progress summary 2) Any delayed milestones with monitoring actions 3) Items to discuss with Dr. Saurabh Khanna 4) One encouraging line. Max 200 words, use bullet points.`
     const userMsg = `Achieved milestones: ${achieved.map(m => m.name).join(', ') || 'None logged yet'}. Pending: ${pending.map(m => m.name).join(', ')}.`
     const fallback = `🌿 Developmental Progress\n\n• Maanvik is tracking well for corrected age of ${age.corrWeeks} weeks\n• Social smile emerging — strong positive neurological sign given IVH history\n• Motor development appropriate for corrected age\n\n📋 Discuss with Dr. Khanna:\n• Confirm neurodevelopment clinic — due May 2026\n• Review tummy time and head control progress\n• Assess visual tracking at next visit\n\n🔍 Monitor:\n• Eye tracking past midline — key marker next 4 weeks\n• Vocalisation patterns should increase by 8 weeks corrected\n\n*Maanvik's journey has been remarkable. His development reflects the resilience he has shown from day one. 🌿*`
     try {
@@ -202,8 +217,10 @@ export default function Growth({ baby, age }) {
         body: JSON.stringify({ systemPrompt, userMessage: userMsg })
       })
       const data = await res.json()
-      setAIRAAssessment(data.text || fallback)
-    } catch { setAIRAAssessment(fallback) }
+      setNestiAssessment(data.text || fallback)
+    } catch {
+      setNestiAssessment(fallback)
+    }
     setAssessmentLoading(false)
   }
 
@@ -213,8 +230,7 @@ export default function Growth({ baby, age }) {
     const last = sorted[sorted.length-1]
     const prev = sorted[sorted.length-2]
     const days = Math.max(1, (new Date(last.date) - new Date(prev.date)) / (1000*60*60*24))
-    const gPerDay = ((last.val - prev.val) * 1000) / days
-    return gPerDay
+    return ((last.val - prev.val) * 1000) / days
   }
 
   const getChartData = (dataArr, type) => {
@@ -235,7 +251,7 @@ export default function Growth({ baby, age }) {
     })
   }
 
- const getPercentiles = () => {
+  const getPercentiles = () => {
     const edd = new Date('2026-02-15')
     const dob = new Date('2025-12-11')
     const today = new Date()
@@ -244,65 +260,62 @@ export default function Growth({ baby, age }) {
     const latestW = weightData.length > 0 ? weightData[weightData.length-1].val : null
     const latestH = heightData.length > 0 ? heightData[heightData.length-1].val : null
     const latestHC = hcData.length > 0 ? hcData[hcData.length-1].val : null
-    const whoW = ageType === 'chronological'
-      ? getWHO50('weight', 'chronological', chronMonths)
-      : getWHO50('weight', 'corrected', corrWeeks)
-    const whoH = ageType === 'chronological'
-      ? getWHO50('height', 'chronological', chronMonths)
-      : getWHO50('height', 'corrected', corrWeeks)
-    const whoHC = ageType === 'chronological'
-      ? getWHO50('hc', 'chronological', chronMonths)
-      : getWHO50('hc', 'corrected', corrWeeks)
+    const whoW = ageType === 'chronological' ? getWHO50('weight','chronological',chronMonths) : getWHO50('weight','corrected',corrWeeks)
+    const whoH = ageType === 'chronological' ? getWHO50('height','chronological',chronMonths) : getWHO50('height','corrected',corrWeeks)
+    const whoHC = ageType === 'chronological' ? getWHO50('hc','chronological',chronMonths) : getWHO50('hc','corrected',corrWeeks)
     return {
       weight: getPercentile(latestW, whoW),
       height: getPercentile(latestH, whoH),
       hc: getPercentile(latestHC, whoHC),
-      latestW, latestH, latestHC,
-      debug: { corrWeeks: corrWeeks.toFixed(2), whoH: whoH?.toFixed(2), latestH }
+      latestW, latestH, latestHC
     }
   }
 
   const velocity = getVelocity()
   const percentiles = getPercentiles()
-
   const currentData = activeTab === 'weight' ? weightData : activeTab === 'height' ? heightData : hcData
   const chartData = getChartData(currentData, activeTab === 'hc' ? 'hc' : activeTab)
   const unit = activeTab === 'weight' ? 'kg' : 'cm'
-
-  const achievedMilestones = milestones.filter(m => m.achieved)
   const pendingMilestones = milestones.filter(m => !m.achieved)
+  const achievedMilestones = milestones.filter(m => m.achieved)
 
- return (
+  return (
     <div>
+      {/* Confetti overlay */}
       <style>{`
         @keyframes confettiFall {
-          0% { transform: translateY(-20px) rotate(0deg); opacity: 1; }
+          0% { transform: translateY(-30px) rotate(0deg); opacity: 1; }
+          80% { opacity: 1; }
           100% { transform: translateY(100vh) rotate(720deg); opacity: 0; }
         }
       `}</style>
+
       {showConfetti && (
         <div style={{ position:'fixed', inset:0, pointerEvents:'none', zIndex:999, overflow:'hidden' }}>
-          {[...Array(40)].map((_, i) => (
-            <div key={i} style={{
+          {confettiItems.map(item => (
+            <div key={item.id} style={{
               position:'absolute',
-              left: `${Math.random() * 100}%`,
-              top: '-20px',
-              fontSize: `${16 + Math.random() * 20}px`,
-              animation: `confettiFall ${1.5 + Math.random() * 2}s ease-in forwards`,
-              animationDelay: `${Math.random() * 1}s`,
-              transform: `rotate(${Math.random() * 360}deg)`
+              left:`${item.left}%`,
+              top:'-30px',
+              fontSize:`${item.size}px`,
+              animation:`confettiFall ${item.duration}s ease-in forwards`,
+              animationDelay:`${item.delay}s`,
+              transform:`rotate(${item.rotation}deg)`
             }}>
-              {['🎉','⭐','🌟','✨','🎊','💫','🌈'][Math.floor(Math.random() * 7)]}
+              {item.emoji}
             </div>
           ))}
           <div style={{
-            position:'absolute', top:'40%', left:'50%', transform:'translate(-50%,-50%)',
-            background:'white', borderRadius:24, padding:'24px 36px', textAlign:'center',
-            boxShadow:'0 8px 40px rgba(0,0,0,0.15)', zIndex:1000
+            position:'absolute', top:'35%', left:'50%',
+            transform:'translate(-50%, -50%)',
+            background:'white', borderRadius:24, padding:'28px 40px',
+            textAlign:'center', boxShadow:'0 8px 48px rgba(0,0,0,0.2)', zIndex:1000,
+            animation:'fadeIn 0.3s ease'
           }}>
-            <div style={{ fontSize:48, marginBottom:8 }}>🎉</div>
-            <div style={{ fontSize:18, fontWeight:800, color:'#2C3E50', marginBottom:4 }}>Milestone reached!</div>
-            <div style={{ fontSize:13, color:'#8C9BAB' }}>Maanvik is growing beautifully 🌿</div>
+            <div style={{ fontSize:52, marginBottom:10 }}>🎉</div>
+            <div style={{ fontSize:17, fontWeight:800, color:'#2C3E50', marginBottom:6 }}>Milestone reached!</div>
+            <div style={{ fontSize:13, color:'#7C9A7E', fontWeight:600, marginBottom:4 }}>{celebrationName}</div>
+            <div style={{ fontSize:12, color:'#8C9BAB' }}>Maanvik is growing beautifully 🌿</div>
           </div>
         </div>
       )}
@@ -311,10 +324,17 @@ export default function Growth({ baby, age }) {
         <div style={{ fontSize:18, fontWeight:800, color:'#2C3E50' }}>Maanvik's growth 📈</div>
       </div>
 
-      {/* Age type toggle */}
+      {/* Age toggle */}
       <div style={{ display:'flex', background:'#F5F5F5', borderRadius:12, padding:4, margin:'12px 16px 0' }}>
         {['corrected','chronological'].map(t => (
-          <button key={t} onClick={() => setAgeType(t)} style={{ flex:1, padding:'10px', borderRadius:10, border:'none', background:ageType===t?'white':'transparent', fontWeight:ageType===t?700:500, color:ageType===t?'#2C3E50':'#8C9BAB', cursor:'pointer', fontSize:13, boxShadow:ageType===t?'0 1px 4px rgba(0,0,0,0.08)':'none', transition:'all 0.2s', textTransform:'capitalize' }}>{t}</button>
+          <button key={t} onClick={() => setAgeType(t)} style={{
+            flex:1, padding:'10px', borderRadius:10, border:'none',
+            background:ageType===t?'white':'transparent',
+            fontWeight:ageType===t?700:500, color:ageType===t?'#2C3E50':'#8C9BAB',
+            cursor:'pointer', fontSize:13,
+            boxShadow:ageType===t?'0 1px 4px rgba(0,0,0,0.08)':'none',
+            transition:'all 0.2s', textTransform:'capitalize'
+          }}>{t}</button>
         ))}
       </div>
 
@@ -322,9 +342,9 @@ export default function Growth({ baby, age }) {
       <div className="section-label" style={{ marginTop:16 }}>Percentiles</div>
       <div style={{ display:'flex', gap:10, padding:'0 16px' }}>
         {[
-          { label:'Weight', val:percentiles.latestW ? percentiles.latestW+'kg' : '—', pct:percentiles.weight },
-          { label:'Height', val:percentiles.latestH ? percentiles.latestH+'cm' : '—', pct:percentiles.height },
-          { label:'Head circ.', val:percentiles.latestHC ? percentiles.latestHC+'cm' : '—', pct:percentiles.hc }
+          { label:'Weight', val: percentiles.latestW ? percentiles.latestW+'kg' : '—', pct: percentiles.weight },
+          { label:'Height', val: percentiles.latestH ? percentiles.latestH+'cm' : '—', pct: percentiles.height },
+          { label:'Head circ.', val: percentiles.latestHC ? percentiles.latestHC+'cm' : '—', pct: percentiles.hc }
         ].map(card => (
           <div key={card.label} style={{ flex:1, background:'white', borderRadius:16, padding:'14px 10px', boxShadow:'0 2px 16px rgba(0,0,0,0.06)', textAlign:'center' }}>
             <div style={{ fontSize:28, fontWeight:800, color:'#7C9A7E', lineHeight:1 }}>{card.pct || '—'}</div>
@@ -346,7 +366,13 @@ export default function Growth({ baby, age }) {
       {/* Chart tabs */}
       <div style={{ display:'flex', gap:8, padding:'12px 16px 0' }}>
         {['weight','height','hc'].map(t => (
-          <button key={t} onClick={() => setActiveTab(t)} style={{ flex:1, padding:'10px', borderRadius:12, border:`1.5px solid ${activeTab===t?'#7C9A7E':'#EEF0F2'}`, background:activeTab===t?'#E8F5E9':'white', fontWeight:600, fontSize:12, cursor:'pointer', color:activeTab===t?'#2E7D32':'#8C9BAB', textTransform:'capitalize' }}>
+          <button key={t} onClick={() => setActiveTab(t)} style={{
+            flex:1, padding:'10px', borderRadius:12,
+            border:`1.5px solid ${activeTab===t?'#7C9A7E':'#EEF0F2'}`,
+            background:activeTab===t?'#E8F5E9':'white',
+            fontWeight:600, fontSize:12, cursor:'pointer',
+            color:activeTab===t?'#2E7D32':'#8C9BAB', textTransform:'capitalize'
+          }}>
             {t === 'hc' ? 'Head' : t}
           </button>
         ))}
@@ -366,36 +392,44 @@ export default function Growth({ baby, age }) {
         </ResponsiveContainer>
       </div>
 
-      {/* Add measurement */}
       <div style={{ padding:'0 16px' }}>
         <button onClick={() => setShowAddSheet(true)} className="btn-primary">+ Add Measurement</button>
       </div>
 
-      {/* Milestones */}
+      {/* PENDING Milestones — TOP */}
       <div className="section-label" style={{ marginTop:20 }}>Developmental milestones</div>
-
-     {/* Pending milestones - TOP */}
+      {pendingMilestones.length === 0 && (
+        <div className="card" style={{ textAlign:'center', color:'#8C9BAB', fontSize:13 }}>
+          All milestones achieved! 🎉
+        </div>
+      )}
       {pendingMilestones.map(m => (
         <div key={m.id} className="card" style={{ marginBottom:8 }}>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-            <div style={{ flex:1 }}>
+            <div style={{ flex:1, paddingRight:8 }}>
               <div style={{ fontSize:14, fontWeight:600, color:'#2C3E50' }}>{m.name}</div>
-              <div style={{ fontSize:11, color:'#8C9BAB', marginTop:2 }}>{m.category} · by ~{m.correctedWeeks ? m.correctedWeeks+'w corrected' : m.chronMonths+'m chron'}</div>
+              <div style={{ fontSize:11, color:'#8C9BAB', marginTop:2 }}>
+                {m.category} · by ~{m.correctedWeeks ? m.correctedWeeks+'w corrected' : m.chronMonths+'m chron'}
+              </div>
             </div>
-            <button onClick={() => setShowMilestoneSheet(m)} style={{ padding:'8px 14px', borderRadius:50, background:'#E8F5E9', color:'#2E7D32', border:'1.5px solid #7C9A7E', fontWeight:700, fontSize:12, cursor:'pointer' }}>Mark done 🎉</button>
+            <button
+              onClick={() => { setShowMilestoneSheet(m); setShowMilestoneDate(''); setShowMilestoneNote('') }}
+              style={{ padding:'8px 12px', borderRadius:50, background:'#E8F5E9', color:'#2E7D32', border:'1.5px solid #7C9A7E', fontWeight:700, fontSize:11, cursor:'pointer', whiteSpace:'nowrap' }}
+            >
+              Mark done 🎉
+            </button>
           </div>
         </div>
       ))}
 
-      {/* Next month section */}
+      {/* Next month */}
       <div style={{ padding:'0 16px', marginBottom:8 }}>
         <button onClick={() => setShowNextMonth(!showNextMonth)} style={{ width:'100%', padding:'12px', background:'#F0F7F0', borderRadius:12, border:'1.5px dashed #7C9A7E', color:'#7C9A7E', fontWeight:700, fontSize:13, cursor:'pointer' }}>
           {showNextMonth ? '▲ Hide' : '▼ Coming up next month 🔜'}
         </button>
       </div>
-
       {showNextMonth && NEXT_MILESTONES.map(m => (
-        <div key={m.id} className="card" style={{ marginBottom:8, opacity:0.7 }}>
+        <div key={m.id} className="card" style={{ marginBottom:8, opacity:0.75 }}>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
             <div>
               <div style={{ fontSize:13, fontWeight:600, color:'#2C3E50' }}>{m.name}</div>
@@ -406,12 +440,12 @@ export default function Growth({ baby, age }) {
         </div>
       ))}
 
-      {/* Achieved milestones - BOTTOM */}
+      {/* ACHIEVED Milestones — BOTTOM */}
       {achievedMilestones.length > 0 && (
         <>
-          <div className="section-label" style={{ marginTop:16 }}>
-            Milestones reached 🎉{' '}
-            <span style={{ background:'#7C9A7E', color:'white', borderRadius:50, padding:'2px 8px', fontSize:10, marginLeft:4 }}>{achievedMilestones.length}</span>
+          <div className="section-label" style={{ marginTop:16, display:'flex', alignItems:'center', gap:8 }}>
+            <span>Milestones reached 🎉</span>
+            <span style={{ background:'#7C9A7E', color:'white', borderRadius:50, padding:'1px 8px', fontSize:10 }}>{achievedMilestones.length}</span>
           </div>
           {achievedMilestones.map(m => (
             <div key={m.id} className="card" style={{ marginBottom:8, background:'#F0F7F0', border:'1.5px solid #C8E6C9' }}>
@@ -423,7 +457,12 @@ export default function Growth({ baby, age }) {
                     {m.notes ? ` · ${m.notes}` : ''}
                   </div>
                 </div>
-                <button onClick={() => { setShowMilestoneSheet(m); setShowMilestoneDate(m.achievedDate || ''); setShowMilestoneNote(m.notes || '') }} style={{ fontSize:12, color:'#8C9BAB', background:'none', border:'none', cursor:'pointer', padding:'4px 8px' }}>Edit</button>
+                <button
+                  onClick={() => { setShowMilestoneSheet(m); setShowMilestoneDate(m.achievedDate || ''); setShowMilestoneNote(m.notes || '') }}
+                  style={{ fontSize:12, color:'#8C9BAB', background:'none', border:'none', cursor:'pointer', padding:'4px 8px' }}
+                >
+                  Edit
+                </button>
               </div>
             </div>
           ))}
@@ -433,13 +472,15 @@ export default function Growth({ baby, age }) {
       {/* AIRA Assessment */}
       <div className="section-label" style={{ marginTop:16 }}>AIRA's developmental assessment 🌿</div>
       <div className="card">
-        {AIRAAssessment ? (
-          <div style={{ fontSize:13, color:'#2C3E50', lineHeight:1.7, whiteSpace:'pre-line' }}>{AIRAAssessment}</div>
+        {nestiAssessment ? (
+          <div style={{ fontSize:13, color:'#2C3E50', lineHeight:1.7, whiteSpace:'pre-line', marginBottom:12 }}>{nestiAssessment}</div>
         ) : (
-          <div style={{ textAlign:'center', color:'#8C9BAB', padding:'8px 0 12px' }}>Get an AI-powered developmental assessment based on Maanvik's milestones</div>
+          <div style={{ textAlign:'center', color:'#8C9BAB', padding:'8px 0 12px', fontSize:13 }}>
+            Get an AI-powered developmental assessment based on Maanvik's milestones
+          </div>
         )}
-        <button onClick={generateAssessment} className="btn-primary" style={{ marginTop:AIRAAssessment?12:0 }} disabled={assessmentLoading}>
-          {assessmentLoading ? 'Analysing...' : AIRAAssessment ? '↻ Refresh Assessment' : 'Generate Assessment'}
+        <button onClick={generateAssessment} className="btn-primary" disabled={assessmentLoading}>
+          {assessmentLoading ? 'Analysing...' : nestiAssessment ? '↻ Refresh Assessment' : 'Generate Assessment'}
         </button>
       </div>
 
@@ -467,7 +508,7 @@ export default function Growth({ baby, age }) {
         </div>
       )}
 
-      {/* Milestone achieved sheet */}
+      {/* Milestone sheet */}
       {showMilestoneSheet && (
         <div className="sheet-overlay" onClick={() => setShowMilestoneSheet(null)}>
           <div className="sheet" onClick={e => e.stopPropagation()}>
@@ -477,15 +518,28 @@ export default function Growth({ baby, age }) {
               <button className="sheet-close" onClick={() => setShowMilestoneSheet(null)}>×</button>
             </div>
             <div style={{ fontSize:12, fontWeight:700, color:'#8C9BAB', marginBottom:8 }}>WHEN DID THIS HAPPEN?</div>
-            <input type="date" className="input-field" value={showMilestoneDate || new Date().toISOString().split('T')[0]} onChange={e => setShowMilestoneDate(e.target.value)} />
+            <input
+              type="date" className="input-field"
+              value={showMilestoneDate || new Date().toISOString().split('T')[0]}
+              onChange={e => setShowMilestoneDate(e.target.value)}
+            />
             <div style={{ fontSize:12, fontWeight:700, color:'#8C9BAB', marginBottom:8 }}>NOTES (optional)</div>
-            <input className="input-field" placeholder="Any details you want to remember..." value={showMilestoneNote} onChange={e => setShowMilestoneNote(e.target.value)} />
-            <button className="btn-primary" onClick={() => handleMilestoneAchieved(showMilestoneSheet)}>Save Milestone 🎉</button>
+            <input
+              className="input-field"
+              placeholder="Any details you want to remember..."
+              value={showMilestoneNote}
+              onChange={e => setShowMilestoneNote(e.target.value)}
+            />
+            <button className="btn-primary" onClick={() => handleMilestoneAchieved(showMilestoneSheet)}>
+              Save Milestone 🎉
+            </button>
           </div>
         </div>
       )}
 
-      {toast && <div className="toast">{toast}</div>}
+      {toast && (
+        <div className="toast" onAnimationEnd={() => setToast(null)}>{toast}</div>
+      )}
     </div>
   )
 }
